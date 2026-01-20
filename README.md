@@ -1,12 +1,11 @@
 # MuleSoft Chunking Connector
 
-Stream large binary files into iterable chunks for processing with `<foreach>`, maintaining constant memory regardless of file size.
+Stream large binary files into chunks for streaming processing in mule, maintaining constant memory regardless of the size of the incoming stream.
 
 ## Features
 
-- **True streaming**: O(chunkSize) memory, not O(fileSize)
-- **PagingProvider integration**: Native Mule streaming support
-- **Lazy iteration**: Chunks read on-demand via `<foreach>`
+- **True streaming**: uses one chunk of memory plus a small overhead
+- **Lazy iteration**: Chunks read on-demand
 - **Raw binary**: No encoding overhead - direct byte[] access
 
 ## Installation
@@ -61,7 +60,7 @@ Add to your Mule project's `pom.xml`:
 
 ### Chunk Properties
 
-Each chunk in the `<foreach>` loop has these properties:
+Each chunk has these properties:
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -81,22 +80,7 @@ payload.index + 1
 // Check if processing last chunk
 payload.isLast
 
-// Calculate progress percentage (if total known)
-(payload.offset + payload.length) / vars.totalSize * 100
 ```
-
-## Memory Usage
-
-Memory consumption: **chunkSize + ~1 byte overhead**
-
-| Chunk Size | Memory Used | File Size | Chunks |
-|------------|-------------|-----------|--------|
-| 5 MB | ~5 MB | 500 MB | 100 |
-| 5 MB | ~5 MB | 5 GB | 1,000 |
-| 10 KB | ~10 KB | 665 MB | 66,500 |
-
-The connector was tested with a 665 MB file producing 66,500 chunks with constant memory usage.
-
 ## Use Cases
 
 - **S3 Multipart Upload**: Split large files for parallel upload
