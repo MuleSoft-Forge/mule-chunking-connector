@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <munit:config name="MUnit_Config"/>
+
+    <chunking:config name="Chunking_Config">
+        <chunking:connection/>
+    </chunking:config>
+
+    <munit:test name="read-chunked-foreach-test" description="Test chunking with foreach iteration">
+        <munit:execution>
+            <!-- Create test binary data: 49 bytes (UTF-8) -->
+            <set-payload value='#["Hello, World! This is a test of binary streaming."]' />
+
+            <!-- Call read-chunked operation with 20-byte chunks -->
+            <chunking:read-chunked config-ref="Chunking_Config" chunkSize="20"/>
+
+            <!-- Collect chunks using foreach -->
+            <set-variable variableName="chunkCount" value="#[0]"/>
+            <set-variable variableName="firstChunkIsFirst" value="#[false]"/>
+            <set-variable variableName="lastChunkIsLast" value="#[false]"/>
+            <set-variable variableName="chunk0Length" value="#[0]"/>
+            <set-variable variableName="chunk1Length" value="#[0]"/>
+            <set-variable variableName="chunk2Length" value="#[0]"/>
+
+            <foreach>
+                <set-variable variableName="chunkCount" value="#[vars.chunkCount + 1]"/>
+                <choice>
+                    <when expression="#[payload.index == 0]">
+                        <set-variable variableName="firstChunkIsFirst" value="#[payload.first]"/>
+                        <set-variable variableName="chunk0Length" value="#[payload.length]"/>
+                    </when>
+                    <when expression="#[payload.index == 1]">
+                        <set-variable variableName="chunk1Length" value="#[payload.length]"/>
+                    </when>
+                    <when expression="#[payload.index == 2]">
+                        <set-variable variableName="lastChunkIsLast" value="#[payload.last]"/>
+                        <set-variable variableName="chunk2Length" value="#[payload.length]"/>
+                    </when>
+                </choice>
+            </foreach>
+        </munit:execution>
+
+        <munit:validation>
+            <!-- Should have 3 chunks: 20 + 20 + 9 bytes (49 bytes total) -->
+            <munit-tools:assert-that expression="#[vars.chunkCount]" is="#[MunitTools::equalTo(3)]"/>
+
+            <!-- First chunk should have isFirst=true -->
+            <munit-tools:assert-that expression="#[vars.firstChunkIsFirst]" is="#[MunitTools::equalTo(true)]"/>
+
+            <!-- Last chunk should have isLast=true -->
+            <munit-tools:assert-that expression="#[vars.lastChunkIsLast]" is="#[MunitTools::equalTo(true)]"/>
+
+            <!-- Verify chunk sizes -->
+            <munit-tools:assert-that expression="#[vars.chunk0Length]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[vars.chunk1Length]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[vars.chunk2Length]" is="#[MunitTools::equalTo(9)]"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>
