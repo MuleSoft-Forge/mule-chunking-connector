@@ -6,7 +6,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.mulesoftforge</groupId>
     <artifactId>mule-chunking-connector</artifactId>
-    <version>0.2.0</version>
+    <version>0.2.1</version>
     <packaging>mule-extension</packaging>
 
     <name>MuleSoft Chunking Connector</name>

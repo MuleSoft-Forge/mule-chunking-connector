@@ -12,17 +12,13 @@
 
     <munit:config name="MUnit_Config"/>
 
-    <chunking:config name="Chunking_Config">
-        <chunking:connection/>
-    </chunking:config>
-
     <munit:test name="read-chunked-foreach-test" description="Test chunking with foreach iteration">
         <munit:execution>
             <!-- Create test binary data: 49 bytes (UTF-8) -->
             <set-payload value='#["Hello, World! This is a test of binary streaming."]' />
 
             <!-- Call read-chunked operation with 20-byte chunks -->
-            <chunking:read-chunked config-ref="Chunking_Config" chunkSize="20"/>
+            <chunking:read-chunked chunkSize="20"/>
 
             <!-- Collect chunks using foreach -->
             <set-variable variableName="chunkCount" value="#[0]"/>

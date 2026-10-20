@@ -125,7 +125,7 @@ public class Chunk {
     }
 
     /**
-     * Constructor for v0.1.0 compatibility (ChunkPagingProvider).
+     * Constructor for v0.1.0 compatibility and immutable chunk mode.
      * Creates a defensive copy of the data buffer.
      *
      * @param data The data buffer (will be copied)
