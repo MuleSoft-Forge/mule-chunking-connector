@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+    <munit:config name="streaming-strategy-element-test"/>
+    <munit:test name="streaming-strategy-element-non-repeatable-test" description="The non-repeatable strategy is written inside a streaming-strategy element">
+        <munit:execution>
+            <set-payload value='#["Hello, World! This is a test of binary streaming."]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="20"/>
+                </chunking:chunking-strategy>
+                <chunking:streaming-strategy>
+                    <chunking:non-repeatable/>
+                </chunking:streaming-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="lengths" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="lengths" value="#[vars.lengths + payload.length]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.lengths]" is="#[MunitTools::equalTo([20, 20, 9])]"/>
+        </munit:validation>
+    </munit:test>
+    <munit:test name="streaming-strategy-element-sliding-window-test" description="The sliding-window strategy is written inside a streaming-strategy element">
+        <munit:execution>
+            <set-payload value='#["Hello, World! This is a test of binary streaming."]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="20"/>
+                </chunking:chunking-strategy>
+                <chunking:streaming-strategy>
+                    <chunking:sliding-window/>
+                </chunking:streaming-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="lengths" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="lengths" value="#[vars.lengths + payload.length]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.lengths]" is="#[MunitTools::equalTo([20, 20, 9])]"/>
+        </munit:validation>
+    </munit:test>
+    <munit:test name="streaming-strategy-element-in-memory-test" description="The in-memory strategy is written inside a streaming-strategy element">
+        <munit:execution>
+            <set-payload value='#["Hello, World! This is a test of binary streaming."]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="20"/>
+                </chunking:chunking-strategy>
+                <chunking:streaming-strategy>
+                    <chunking:in-memory/>
+                </chunking:streaming-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="lengths" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="lengths" value="#[vars.lengths + payload.length]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.lengths]" is="#[MunitTools::equalTo([20, 20, 9])]"/>
+        </munit:validation>
+    </munit:test>
+    <munit:test name="streaming-strategy-element-file-store-test" description="The file-store strategy is written inside a streaming-strategy element">
+        <munit:execution>
+            <set-payload value='#["Hello, World! This is a test of binary streaming."]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="20"/>
+                </chunking:chunking-strategy>
+                <chunking:streaming-strategy>
+                    <chunking:file-store/>
+                </chunking:streaming-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="lengths" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="lengths" value="#[vars.lengths + payload.length]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.lengths]" is="#[MunitTools::equalTo([20, 20, 9])]"/>
+        </munit:validation>
+    </munit:test>
+    <munit:test name="chunk-flags-read-as-first-and-last-test" description="A flow reads the first-chunk and last-chunk flags as payload.first and payload.last">
+        <munit:execution>
+            <set-payload value='#["Hello, World! This is a test of binary streaming."]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="20"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="flags" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="flags" value="#[vars.flags + {first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.flags]"
+                is="#[MunitTools::equalTo([{first: true, last: false}, {first: false, last: false}, {first: false, last: true}])]"/>
+        </munit:validation>
+    </munit:test>
+</mule>

@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <munit:config name="streaming-strategies-test"/>
+
+    <munit:test name="non-repeatable-by-size-test" description="The non-repeatable strategy chunking by size">
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\nc\nd\ne\n&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="4"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:non-repeatable/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="first" value="#[[]]"/>
+            <set-variable variableName="second" value="#[[]]"/>
+            <foreach><set-variable variableName="first" value="#[vars.first + (payload.data as String)]"/></foreach>
+            <try>
+                <foreach><set-variable variableName="second" value="#[vars.second + (payload.data as String)]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="second" value="failed"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.first]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.second]" is="#[MunitTools::equalTo([])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="non-repeatable-by-delimiter-test" description="The non-repeatable strategy chunking by delimiter">
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\nc\nd\ne\n&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-delimiter recordsPerChunk="2"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:non-repeatable/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="first" value="#[[]]"/>
+            <set-variable variableName="second" value="#[[]]"/>
+            <foreach><set-variable variableName="first" value="#[vars.first + (payload.data as String)]"/></foreach>
+            <try>
+                <foreach><set-variable variableName="second" value="#[vars.second + (payload.data as String)]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="second" value="failed"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.first]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.second]" is="#[MunitTools::equalTo([])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-by-size-test" description="The sliding-window strategy chunking by size: a second loop over chunks within the limit reads them again">
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\nc\nd\ne\n&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="4"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:sliding-window/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="first" value="#[[]]"/>
+            <set-variable variableName="second" value="#[[]]"/>
+            <foreach><set-variable variableName="first" value="#[vars.first + (payload.data as String)]"/></foreach>
+            <try>
+                <foreach><set-variable variableName="second" value="#[vars.second + (payload.data as String)]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="second" value="failed"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.first]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.second]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-by-delimiter-test" description="The sliding-window strategy chunking by delimiter: a second loop over chunks within the limit reads them again">
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\nc\nd\ne\n&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-delimiter recordsPerChunk="2"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:sliding-window/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="first" value="#[[]]"/>
+            <set-variable variableName="second" value="#[[]]"/>
+            <foreach><set-variable variableName="first" value="#[vars.first + (payload.data as String)]"/></foreach>
+            <try>
+                <foreach><set-variable variableName="second" value="#[vars.second + (payload.data as String)]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="second" value="failed"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.first]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.second]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="in-memory-by-size-test" description="The in-memory strategy chunking by size">
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\nc\nd\ne\n&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="4"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:in-memory/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="first" value="#[[]]"/>
+            <set-variable variableName="second" value="#[[]]"/>
+            <foreach><set-variable variableName="first" value="#[vars.first + (payload.data as String)]"/></foreach>
+            <try>
+                <foreach><set-variable variableName="second" value="#[vars.second + (payload.data as String)]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="second" value="failed"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.first]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.second]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="in-memory-by-delimiter-test" description="The in-memory strategy chunking by delimiter">
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\nc\nd\ne\n&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-delimiter recordsPerChunk="2"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:in-memory/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="first" value="#[[]]"/>
+            <set-variable variableName="second" value="#[[]]"/>
+            <foreach><set-variable variableName="first" value="#[vars.first + (payload.data as String)]"/></foreach>
+            <try>
+                <foreach><set-variable variableName="second" value="#[vars.second + (payload.data as String)]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="second" value="failed"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.first]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.second]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="file-store-by-size-test" description="The file-store strategy chunking by size">
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\nc\nd\ne\n&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="4"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:file-store maxInMemoryChunks="1"/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="first" value="#[[]]"/>
+            <set-variable variableName="second" value="#[[]]"/>
+            <foreach><set-variable variableName="first" value="#[vars.first + (payload.data as String)]"/></foreach>
+            <try>
+                <foreach><set-variable variableName="second" value="#[vars.second + (payload.data as String)]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="second" value="failed"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.first]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.second]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="file-store-by-delimiter-test" description="The file-store strategy chunking by delimiter">
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\nc\nd\ne\n&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-delimiter recordsPerChunk="2"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:file-store maxInMemoryChunks="1"/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="first" value="#[[]]"/>
+            <set-variable variableName="second" value="#[[]]"/>
+            <foreach><set-variable variableName="first" value="#[vars.first + (payload.data as String)]"/></foreach>
+            <try>
+                <foreach><set-variable variableName="second" value="#[vars.second + (payload.data as String)]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="second" value="failed"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.first]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.second]" is="#[MunitTools::equalTo([&quot;a\nb\n&quot;, &quot;c\nd\n&quot;, &quot;e\n&quot;])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="in-memory-max-in-memory-chunks-test" description="in-memory fails the read at maxInMemoryChunks, after the chunks within it">
+        <munit:execution>
+            <set-payload value="#[(1 to 50) map &quot;x&quot; joinBy &quot;&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="5"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:in-memory maxInMemoryChunks="4"/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="caught" value="nothing"/>
+            <set-variable variableName="description" value=""/>
+            <try>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;MULE:UNKNOWN&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(4)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;limit of 4 chunks held in memory&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="in-memory-default-limit-is-ten-chunks-test" description="in-memory with no setting holds 10 chunks and fails the read at the eleventh">
+        <munit:execution>
+            <set-payload value="#[(1 to 55) map &quot;x&quot; joinBy &quot;&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="5"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:in-memory/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="description" value=""/>
+            <try>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="description" value="#[error.description]"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(10)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;limit of 10 chunks held in memory&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="file-store-default-keeps-ten-chunks-in-memory-test" description="file-store with no setting keeps 10 chunks in memory and writes the eleventh to disk">
+        <munit:execution>
+            <set-variable variableName="bytesBefore" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::fileStoreBytes()]"/>
+            <set-payload value="#[(1 to 55) map &quot;x&quot; joinBy &quot;&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="5"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:file-store/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="seen" value="#[0]"/>
+            <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+            <set-variable variableName="onDisk" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::fileStoreBytes() - vars.bytesBefore]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(11)]"/>
+            <munit-tools:assert-that expression="#[vars.onDisk]" is="#[MunitTools::equalTo(5)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-default-limit-is-three-chunks-test" description="sliding-window with maxInMemoryChunks left at its default holds 3 chunks: with readers 2 and one reader, the read fails at the fourth">
+        <munit:execution>
+            <set-payload value="#[(1 to 50) map &quot;x&quot; joinBy &quot;&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="5"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:sliding-window readers="2"/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="description" value=""/>
+            <try>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+                <error-handler>
+                    <on-error-continue type="ANY"><set-variable variableName="description" value="#[error.description]"/></on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(3)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;maxInMemoryChunks (3)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="file-store-writes-chunks-beyond-max-in-memory-chunks-to-disk-test" description="file-store holds maxInMemoryChunks chunks in memory and writes the rest to a temporary file">
+        <munit:execution>
+            <set-variable variableName="bytesBefore" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::fileStoreBytes()]"/>
+            <set-payload value="#[(1 to 50) map &quot;x&quot; joinBy &quot;&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="5"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:file-store maxInMemoryChunks="2"/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="seen" value="#[0]"/>
+            <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+            <set-variable variableName="onDisk" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::fileStoreBytes() - vars.bytesBefore]"/>
+            <set-variable variableName="again" value="#[0]"/>
+            <foreach><set-variable variableName="again" value="#[vars.again + 1]"/></foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(10)]"/>
+            <munit-tools:assert-that expression="#[vars.onDisk]" is="#[MunitTools::equalTo(40)]"/>
+            <munit-tools:assert-that expression="#[vars.again]" is="#[MunitTools::equalTo(10)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="file-store-temporary-file-deleted-after-flow-test" description="Runs after the tests above: the temporary files they wrote are deleted once their flows have finished and the chunks are collected">
+        <munit:execution>
+            <set-variable variableName="files" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::fileStoreFilesAfterCollection(10000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.files]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="file-store-writes-nothing-when-chunks-fit-in-memory-test" description="file-store writes nothing to disk when every chunk fits within maxInMemoryChunks">
+        <munit:execution>
+            <set-payload value="#[(1 to 50) map &quot;x&quot; joinBy &quot;&quot;]"/>
+            <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="5"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:file-store maxInMemoryChunks="10"/></chunking:streaming-strategy></chunking:read-chunked>
+            <set-variable variableName="bytesBefore" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::fileStoreBytes()]"/>
+            <foreach><logger level="DEBUG" message="#[payload.index]"/></foreach>
+            <set-variable variableName="files" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::fileStoreBytes() - vars.bytesBefore]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.files]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+</mule>

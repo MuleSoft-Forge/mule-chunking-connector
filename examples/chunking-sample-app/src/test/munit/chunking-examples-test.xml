@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+    <munit:config name="chunking-examples-test"/>
+
+    <munit:test name="bare-operation-test" description="Runs the bare-operation flow">
+        <munit:execution>
+            <flow-ref name="bare-operation"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.chunks.length]" is="#[MunitTools::equalTo([737])]"/>
+            <munit-tools:assert-that expression="#[payload.chunks.recordCount]" is="#[MunitTools::equalTo([null])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-size-test" description="Runs the by-size flow">
+        <munit:execution>
+            <flow-ref name="by-size"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.chunks.length]" is="#[MunitTools::equalTo([256, 256, 225])]"/>
+            <munit-tools:assert-that expression="#[payload.chunks.last]" is="#[MunitTools::equalTo([false, false, true])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-default-newline-test" description="Runs the by-delimiter-default-newline flow">
+        <munit:execution>
+            <flow-ref name="by-delimiter-default-newline"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.chunks.recordCount]" is="#[MunitTools::equalTo([10, 10, 10, 1])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-expression-test" description="Runs the by-delimiter-expression flow">
+        <munit:execution>
+            <flow-ref name="by-delimiter-expression"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.chunks.recordCount]" is="#[MunitTools::equalTo([5, 5, 2])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="short-chunk-max-chunk-size-test" description="Runs the short-chunk-max-chunk-size flow">
+        <munit:execution>
+            <flow-ref name="short-chunk-max-chunk-size"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.chunks.recordCount]" is="#[MunitTools::equalTo([3, 2, 3, 1])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="streaming-non-repeatable-test" description="Runs the streaming-non-repeatable flow">
+        <munit:execution>
+            <flow-ref name="streaming-non-repeatable"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.firstPass]" is="#[MunitTools::equalTo(7)]"/>
+            <munit-tools:assert-that expression="#[payload.secondPass]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="streaming-sliding-window-test" description="Runs the streaming-sliding-window flow">
+        <munit:execution>
+            <flow-ref name="streaming-sliding-window"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.route1]" is="#[MunitTools::equalTo(7)]"/>
+            <munit-tools:assert-that expression="#[payload.route2]" is="#[MunitTools::equalTo(7)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="streaming-in-memory-test" description="Runs the streaming-in-memory flow">
+        <munit:execution>
+            <flow-ref name="streaming-in-memory"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.firstPass]" is="#[MunitTools::equalTo(7)]"/>
+            <munit-tools:assert-that expression="#[payload.secondPass]" is="#[MunitTools::equalTo(7)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="streaming-file-store-test" description="Runs the streaming-file-store flow">
+        <munit:execution>
+            <flow-ref name="streaming-file-store"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.firstPass]" is="#[MunitTools::equalTo(2)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="error-invalid-chunk-size-test" description="Runs the error-invalid-chunk-size flow">
+        <munit:execution>
+            <flow-ref name="error-invalid-chunk-size"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_CHUNK_SIZE&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="error-invalid-records-per-chunk-test" description="Runs the error-invalid-records-per-chunk flow">
+        <munit:execution>
+            <flow-ref name="error-invalid-records-per-chunk"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_RECORDS_PER_CHUNK&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="error-invalid-delimiter-test" description="Runs the error-invalid-delimiter flow">
+        <munit:execution>
+            <flow-ref name="error-invalid-delimiter"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_DELIMITER&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="error-invalid-parameter-test" description="Runs the error-invalid-parameter flow">
+        <munit:execution>
+            <flow-ref name="error-invalid-parameter"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="error-parent-type-test" description="Runs the error-parent-type flow">
+        <munit:execution>
+            <flow-ref name="error-parent-type"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_CHUNK_SIZE&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="error-no-content-test" description="Runs the error-no-content flow">
+        <munit:execution>
+            <flow-ref name="error-no-content"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:READ_ERROR&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="error-failure-while-reading-test" description="Runs the error-failure-while-reading flow">
+        <munit:execution>
+            <flow-ref name="error-failure-while-reading"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.caught]" is="#[MunitTools::equalTo(&quot;MULE:UNKNOWN&quot;)]"/>
+            <munit-tools:assert-that expression="#[payload.description contains 'larger than the maximum chunk size of 100 bytes']" is="#[MunitTools::equalTo(true)]"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

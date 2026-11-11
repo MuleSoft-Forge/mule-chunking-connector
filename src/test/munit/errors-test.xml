@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <munit:config name="errors-test"/>
+
+    <munit:test name="read-failure-non-repeatable-is-raised-not-a-short-stream-test" description="A source failure while foreach reads is raised to the flow, as MULE:UNKNOWN, after the chunks before it" timeOut="30000">
+        <munit:execution>
+            <set-payload value="#[java!com::mulesoftforge::mule::extension::chunking::test::FailingInputStreams::failAfter(2500)]"/>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="1000"/></chunking:chunking-strategy></chunking:read-chunked>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+                <set-variable variableName="caught" value="no error: the content ended normally"/>
+                <error-handler>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;MULE:UNKNOWN&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(2)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;Simulated source failure after 2500 bytes&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="read-failure-sliding-window-is-raised-not-a-short-stream-test" description="Under the sliding window, a source failure while foreach reads is raised as MULE:UNKNOWN" timeOut="30000">
+        <munit:execution>
+            <set-payload value="#[java!com::mulesoftforge::mule::extension::chunking::test::FailingInputStreams::failAfter(2500)]"/>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="1000"/></chunking:chunking-strategy><chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="3"/></chunking:streaming-strategy></chunking:read-chunked>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+                <set-variable variableName="caught" value="no error: the content ended normally"/>
+                <error-handler>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;MULE:UNKNOWN&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(2)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;Simulated source failure after 2500 bytes&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="read-failure-by-delimiter-is-raised-test" description="Chunking by delimiter, a source failure while foreach reads is raised as MULE:UNKNOWN" timeOut="30000">
+        <munit:execution>
+            <set-payload value="#[java!com::mulesoftforge::mule::extension::chunking::test::FailingInputStreams::failAfter(2500)]"/>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked><chunking:chunking-strategy><chunking:by-delimiter delimiter="x" recordsPerChunk="500"/></chunking:chunking-strategy></chunking:read-chunked>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+                <set-variable variableName="caught" value="no error: the content ended normally"/>
+                <error-handler>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;MULE:UNKNOWN&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(4)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;Simulated source failure after 2500 bytes&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="read-failure-in-dataweave-expression-is-raised-test" description="A source failure while a DataWeave expression reads the chunks is raised as MULE:EXPRESSION" timeOut="30000">
+        <munit:execution>
+            <set-payload value="#[java!com::mulesoftforge::mule::extension::chunking::test::FailingInputStreams::failAfter(2500)]"/>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="1000"/></chunking:chunking-strategy></chunking:read-chunked>
+                <set-variable variableName="seen" value="#[sizeOf(payload)]"/>
+                <set-variable variableName="caught" value="no error: the content ended normally"/>
+                <error-handler>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;MULE:EXPRESSION&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;Simulated source failure after 2500 bytes&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="record-too-large-is-raised-test" description="A record larger than maxChunkSize fails while foreach reads, as MULE:UNKNOWN, after the chunks before it" timeOut="30000">
+        <munit:execution>
+            <set-payload value="#[&quot;ok\n&quot; ++ ((1 to 50) map &quot;x&quot; joinBy &quot;&quot;) ++ &quot;\nlater\n&quot;]"/>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked><chunking:chunking-strategy><chunking:by-delimiter recordsPerChunk="1" maxChunkSize="20"/></chunking:chunking-strategy></chunking:read-chunked>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+                <set-variable variableName="caught" value="no error: the content ended normally"/>
+                <error-handler>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;MULE:UNKNOWN&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;is larger than the maximum chunk size of 20 bytes&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="no-content-read-error-test" description="No content fails with CHUNKING:READ_ERROR, caught by type" timeOut="30000">
+        <munit:execution>
+            <set-payload value="#[null]"/>
+            <set-variable variableName="seen" value="#[0]"/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked><chunking:chunking-strategy><chunking:by-size chunkSize="1000"/></chunking:chunking-strategy></chunking:read-chunked>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+                <set-variable variableName="caught" value="no error: the content ended normally"/>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:READ_ERROR">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:READ_ERROR&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.seen]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;There is no content to chunk (got: null)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+</mule>

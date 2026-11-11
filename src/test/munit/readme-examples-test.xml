@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Every XML example in the README is taken from between a readme-begin and a readme-end marker here, so that each one
+     is run. The examples hold only what a reader needs: each test supplies the content before the example, and a spy on
+     the example's loggers records what each one saw, through the Results helper. -->
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <munit:config name="readme-examples-test"/>
+
+    <munit:test name="readme-quick-start-test" description="README: the operation with no settings, read with foreach">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-quick-start', payload.length)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[&quot;Hello, chunks&quot;]"/>
+            <!-- readme-begin: readme-quick-start-test -->
+            <chunking:read-chunked/>
+            <foreach>
+                <logger level="INFO" message="#['Chunk $(payload.index): $(payload.length) bytes, last: $(payload.last)']"/>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-quick-start', 0)]" is="#[MunitTools::equalTo([13])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-by-size-test" description="README: chunking by size">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-by-size', payload.length)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[dw::core::Strings::repeat('x', 150000)]"/>
+            <!-- readme-begin: readme-by-size-test -->
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="65536"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <foreach>
+                <logger level="INFO" message="#['Chunk $(payload.index): $(payload.length) bytes from byte $(payload.offset)']"/>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-by-size', 0)]" is="#[MunitTools::equalTo([65536, 65536, 18928])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-by-delimiter-lines-test" description="README: chunking lines by delimiter, the newline being the default">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-by-delimiter-lines', payload.recordCount)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[(1 to 2500) map &quot;line $($)&quot; joinBy &quot;\n&quot;]"/>
+            <!-- readme-begin: readme-by-delimiter-lines-test -->
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="1000"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <foreach>
+                <logger level="INFO" message="#['Chunk $(payload.index) holds $(payload.recordCount) lines']"/>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-by-delimiter-lines', 0)]" is="#[MunitTools::equalTo([1000, 1000, 500])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-by-delimiter-text-test" description="README: a delimiter given as text">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-by-delimiter-text', payload.recordCount)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[(1 to 250) map &quot;record $($)&quot; joinBy &quot;|&quot;]"/>
+            <!-- readme-begin: readme-by-delimiter-text-test -->
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter delimiter="|" recordsPerChunk="100"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <foreach>
+                <logger level="INFO" message="#['Chunk $(payload.index) holds $(payload.recordCount) records']"/>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-by-delimiter-text', 0)]" is="#[MunitTools::equalTo([100, 100, 50])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-by-delimiter-expression-test" description="README: a delimiter given as an expression, for characters that cannot be typed">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-by-delimiter-expression', payload.recordCount)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[(1 to 1500) map &quot;line $($)&quot; joinBy &quot;\r\n&quot;]"/>
+            <!-- readme-begin: readme-by-delimiter-expression-test -->
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter delimiter="#['\r\n']" encoding="UTF-8" recordsPerChunk="1000"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <foreach>
+                <logger level="INFO" message="#['Chunk $(payload.index) holds $(payload.recordCount) lines']"/>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-by-delimiter-expression', 0)]" is="#[MunitTools::equalTo([1000, 500])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-max-chunk-size-test" description="README: chunks ended early by maxChunkSize, seen through recordCount">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-max-chunk-size', payload.recordCount)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <!-- 1000 records of 100 bytes each, counting the newline that ends each: 655 fit in 65536 bytes -->
+            <set-payload value="#[(1 to 1000) map dw::core::Strings::repeat('x', 99) joinBy &quot;\n&quot;]"/>
+            <!-- readme-begin: readme-max-chunk-size-test -->
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="1000" maxChunkSize="65536"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <foreach>
+                <choice>
+                    <when expression="#[not payload.last and payload.recordCount &lt; 1000]">
+                        <logger level="WARN" message="#['Chunk $(payload.index) holds only $(payload.recordCount) records']"/>
+                    </when>
+                </choice>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-max-chunk-size', 0)]" is="#[MunitTools::equalTo([655])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-non-repeatable-test" description="README: the non-repeatable strategy, written out">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-non-repeatable', payload.index)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[dw::core::Strings::repeat('x', 2500000)]"/>
+            <!-- readme-begin: readme-non-repeatable-test -->
+            <chunking:read-chunked>
+                <chunking:streaming-strategy>
+                    <chunking:non-repeatable/>
+                </chunking:streaming-strategy>
+            </chunking:read-chunked>
+            <foreach>
+                <logger level="INFO" message="#['Chunk $(payload.index)']"/>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-non-repeatable', 0)]" is="#[MunitTools::equalTo([0, 1, 2])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- In a flow, as an application would have it: a scatter-gather written directly in a test runs its routes one after
+         another. -->
+    <flow name="readme-sliding-window-scatter-gather">
+        <!-- readme-begin: readme-sliding-window-scatter-gather-test -->
+        <chunking:read-chunked>
+            <chunking:streaming-strategy>
+                <chunking:sliding-window maxInMemoryChunks="10" readers="2"/>
+            </chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <scatter-gather>
+            <route>
+                <foreach>
+                    <logger level="INFO" message="#['Route 1, chunk $(payload.index)']"/>
+                </foreach>
+            </route>
+            <route>
+                <foreach>
+                    <logger level="INFO" message="#['Route 2, chunk $(payload.index)']"/>
+                </foreach>
+            </route>
+        </scatter-gather>
+        <!-- readme-end -->
+    </flow>
+
+    <munit:test name="readme-sliding-window-scatter-gather-test" description="README: the sliding-window strategy read by both routes of a scatter-gather, readers 2">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-sliding-window', payload.index)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[dw::core::Strings::repeat('x', 2500000)]"/>
+            <flow-ref name="readme-sliding-window-scatter-gather"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-sliding-window', 0) orderBy $]" is="#[MunitTools::equalTo([0, 0, 1, 1, 2, 2])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-in-memory-test" description="README: the in-memory strategy, read twice">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-in-memory', payload.index)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[dw::core::Strings::repeat('x', 2500000)]"/>
+            <!-- readme-begin: readme-in-memory-test -->
+            <chunking:read-chunked>
+                <chunking:streaming-strategy>
+                    <chunking:in-memory maxInMemoryChunks="100"/>
+                </chunking:streaming-strategy>
+            </chunking:read-chunked>
+            <foreach>
+                <logger level="INFO" message="#['First pass, chunk $(payload.index)']"/>
+            </foreach>
+            <foreach>
+                <logger level="INFO" message="#['Second pass, chunk $(payload.index)']"/>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-in-memory', 0)]" is="#[MunitTools::equalTo([0, 1, 2, 0, 1, 2])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-file-store-test" description="README: the file-store strategy, read by a loop and then by a second loop">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-file-store', payload.index)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[dw::core::Strings::repeat('x', 2500000)]"/>
+            <!-- readme-begin: readme-file-store-test -->
+            <chunking:read-chunked>
+                <chunking:streaming-strategy>
+                    <chunking:file-store maxInMemoryChunks="2"/>
+                </chunking:streaming-strategy>
+            </chunking:read-chunked>
+            <foreach>
+                <logger level="INFO" message="#['First pass, chunk $(payload.index)']"/>
+            </foreach>
+            <foreach>
+                <logger level="INFO" message="#['Second pass, chunk $(payload.index)']"/>
+            </foreach>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-file-store', 0)]" is="#[MunitTools::equalTo([0, 1, 2, 0, 1, 2])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-invalid-parameter-test" description="README: catching every invalid value with the parent type">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-invalid-parameter', error.errorType.identifier)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <set-payload value="#[&quot;a\nb\n&quot;]"/>
+            <!-- readme-begin: readme-invalid-parameter-test -->
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-delimiter recordsPerChunk="0"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <logger level="ERROR" message="#[error.errorType.identifier ++ ': ' ++ error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-invalid-parameter', 0)]" is="#[MunitTools::equalTo([&quot;INVALID_RECORDS_PER_CHUNK&quot;])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="readme-failure-while-reading-test" description="README: a failure while foreach reads the chunks, handled with ANY">
+        <munit:behavior>
+            <munit-tools:spy processor="logger">
+                <munit-tools:before-call>
+                    <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::append('readme-failure-while-reading', if (error != null) {errorType: error.errorType.namespace ++ ':' ++ error.errorType.identifier, description: error.description} else payload.recordCount)]"/>
+                </munit-tools:before-call>
+            </munit-tools:spy>
+        </munit:behavior>
+        <munit:execution>
+            <!-- one short record, then one of 70000 bytes -->
+            <set-payload value="#[&quot;short\n&quot; ++ dw::core::Strings::repeat('x', 70000) ++ &quot;\n&quot;]"/>
+            <!-- readme-begin: readme-failure-while-reading-test -->
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="1000" maxChunkSize="65536"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <try>
+                <foreach>
+                    <logger level="INFO" message="#['Chunk $(payload.index) holds $(payload.recordCount) records']"/>
+                </foreach>
+                <error-handler>
+                    <on-error-continue type="ANY">
+                        <logger level="ERROR" message="#['Reading the chunks failed: ' ++ error.description]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+            <!-- readme-end -->
+        </munit:execution>
+        <munit:validation>
+            <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('readme-failure-while-reading', 0)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded[0]]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded[1].errorType]" is="#[MunitTools::equalTo(&quot;MULE:UNKNOWN&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded[1].description]" is="#[MunitTools::containsString(&quot;larger than the maximum chunk size of 65536 bytes&quot;)]"/>
+            <munit-tools:assert-that expression="#[sizeOf(vars.recorded)]" is="#[MunitTools::equalTo(2)]"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

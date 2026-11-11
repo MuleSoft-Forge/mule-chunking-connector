@@ -1,32 +1,26 @@
 package com.mulesoftforge.mule.extension.chunking.api.streaming;
 
-import java.util.Iterator;
-import org.mule.runtime.extension.api.runtime.streaming.StreamingHelper;
-
 /**
- * Defines a streaming strategy for chunk iteration.
+ * How {@code read-chunked} holds the chunks it reads, written inside the operation's {@code streaming-strategy}
+ * element as {@code non-repeatable}, {@code sliding-window}, {@code in-memory} or {@code file-store}. Without one,
+ * the chunks are non-repeatable.
  *
- * <p>Implementations control how chunks are buffered and whether they can be
- * re-read (repeatability). Different strategies offer trade-offs between
- * memory usage and functionality:</p>
+ * <p>Memory is counted in chunks; a chunk is at most the chunk size, or the maximum chunk size when chunking by
+ * delimiter.</p>
  *
- * <ul>
- *   <li><b>non-repeatable</b> - Constant O(chunkSize) memory, single pass</li>
- *   <li><b>in-memory</b> - Mule's repeatable buffer, O(totalChunks × chunkSize) memory</li>
- *   <li><b>file-store</b> - Mule EE file-backed buffer, bounded memory but disk I/O</li>
- *   <li><b>sliding-window</b> - Custom bounded repeatability, O(maxCachedChunks × chunkSize)</li>
- * </ul>
+ * <table>
+ *   <caption>The four strategies</caption>
+ *   <tr><th>Strategy</th><th>Chunks can be read</th><th>Chunks held in memory</th></tr>
+ *   <tr><td>non-repeatable</td><td>once, in order</td><td>one between reads; up to about three while one is
+ *   read</td></tr>
+ *   <tr><td>sliding-window</td><td>by several readers at the same time</td><td>at most maxInMemoryChunks</td></tr>
+ *   <tr><td>in-memory</td><td>any number of times</td><td>every chunk, at most maxInMemoryChunks</td></tr>
+ *   <tr><td>file-store</td><td>any number of times</td><td>at most maxInMemoryChunks; the rest on disk</td></tr>
+ * </table>
+ *
+ * <p>What a repeatable strategy holds is released when the event that read the chunks ends.</p>
  *
  * @since 0.2.0
  */
 public interface ChunkingStreamingStrategy {
-
-    /**
-     * Wraps the chunk iterator with the appropriate streaming behavior.
-     *
-     * @param iterator the raw chunk iterator
-     * @param streamingHelper Mule's streaming helper for delegation to runtime infrastructure
-     * @return the wrapped iterator or cursor provider
-     */
-    Object apply(Iterator<?> iterator, StreamingHelper streamingHelper);
 }

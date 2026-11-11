@@ -1,33 +1,39 @@
 package com.mulesoftforge.mule.extension.chunking.internal.operation;
 
-import com.mulesoftforge.mule.extension.chunking.api.Chunk;
+import static org.mule.runtime.api.meta.ExpressionSupport.NOT_SUPPORTED;
+
 import com.mulesoftforge.mule.extension.chunking.api.error.ChunkingError;
+import com.mulesoftforge.mule.extension.chunking.api.mode.ByDelimiterStrategy;
+import com.mulesoftforge.mule.extension.chunking.api.mode.BySizeStrategy;
+import com.mulesoftforge.mule.extension.chunking.api.mode.ChunkingStrategy;
 import com.mulesoftforge.mule.extension.chunking.api.streaming.ChunkingStreamingStrategy;
 import com.mulesoftforge.mule.extension.chunking.api.streaming.NonRepeatableStrategy;
 import com.mulesoftforge.mule.extension.chunking.internal.error.ChunkingErrorTypeProvider;
+import com.mulesoftforge.mule.extension.chunking.internal.iterator.ByDelimiterChunkReader;
+import com.mulesoftforge.mule.extension.chunking.internal.iterator.BySizeChunkReader;
 import com.mulesoftforge.mule.extension.chunking.internal.iterator.ChunkIterator;
-import org.mule.runtime.api.meta.ExpressionSupport;
+import com.mulesoftforge.mule.extension.chunking.internal.iterator.ChunkReader;
+import com.mulesoftforge.mule.extension.chunking.internal.streaming.StreamingStrategies;
 import org.mule.runtime.api.metadata.TypedValue;
 import org.mule.runtime.extension.api.annotation.Alias;
 import org.mule.runtime.extension.api.annotation.Expression;
 import org.mule.runtime.extension.api.annotation.dsl.xml.ParameterDsl;
 import org.mule.runtime.extension.api.annotation.error.Throws;
 import org.mule.runtime.extension.api.annotation.param.Content;
+import org.mule.runtime.extension.api.annotation.param.MediaType;
 import org.mule.runtime.extension.api.annotation.param.Optional;
 import org.mule.runtime.extension.api.annotation.param.display.DisplayName;
+import org.mule.runtime.extension.api.annotation.param.display.Placement;
 import org.mule.runtime.extension.api.annotation.param.display.Summary;
 import org.mule.runtime.extension.api.exception.ModuleException;
-import org.mule.runtime.extension.api.runtime.streaming.StreamingHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
-import java.util.Iterator;
+import java.nio.charset.Charset;
 
 /**
- * Operations for chunking binary streams.
- *
- * <p><b>v0.2.0 Architecture:</b> TRUE constant memory streaming using buffer reuse.</p>
+ * The chunking connector's operation.
  *
  * @since 0.1.0
  */
@@ -35,115 +41,142 @@ public class ChunkOperations {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ChunkOperations.class);
 
+    /** The chunk size used when no chunking strategy is given, 1 MB. */
+    private static final int DEFAULT_CHUNK_SIZE = 1048576;
+
     /**
-     * Reads binary content and returns chunks with configurable streaming strategy.
+     * Reads content as a sequence of chunks, for processing one at a time with {@code foreach}.
      *
-     * <p><b>v0.2.0: Streaming Strategy Support</b></p>
-     * <p>Choose between four streaming strategies based on your memory and repeatability needs:</p>
-     * <ul>
-     *   <li><b>non-repeatable</b> - O(chunkSize) memory, single pass only</li>
-     *   <li><b>in-memory</b> - Mule's repeatable buffer, ⚠️ O(totalChunks × chunkSize) memory</li>
-     *   <li><b>file-store</b> - Mule EE file-backed buffer, bounded memory with disk I/O</li>
-     *   <li><b>sliding-window</b> - Custom bounded repeatability, O(maxCachedChunks × chunkSize)</li>
-     * </ul>
+     * <p>The chunking strategy says how the content is cut: {@code by-size} or {@code by-delimiter} (a number of
+     * delimited records per chunk). With none chosen, the content is cut by size into chunks of 1 MB. The streaming
+     * strategy says how the chunks are held: {@code non-repeatable} can be read once, in order; {@code sliding-window}
+     * by several readers that read at the same time; {@code in-memory} and {@code file-store} any number of times.
+     * With none chosen, the chunks are non-repeatable.</p>
      *
-     * <h3>Example: Non-repeatable (Constant Memory)</h3>
      * <pre>
-     * &lt;chunking:read-chunked chunkSize="104857600"&gt;
-     *     &lt;chunking:non-repeatable /&gt;
+     * &lt;chunking:read-chunked&gt;
+     *     &lt;chunking:chunking-strategy&gt;
+     *         &lt;chunking:by-delimiter recordsPerChunk="1000"/&gt;
+     *     &lt;/chunking:chunking-strategy&gt;
      * &lt;/chunking:read-chunked&gt;
      * &lt;foreach&gt;
-     *     &lt;logger message="Chunk #[payload.index]: #[payload.length] bytes"/&gt;
+     *     &lt;logger message="#['Chunk ' ++ payload.index ++ ': ' ++ payload.recordCount ++ ' records']"/&gt;
      * &lt;/foreach&gt;
      * </pre>
      *
-     * <h3>Example: Sliding Window (Bounded Repeatable)</h3>
-     * <pre>
-     * &lt;chunking:read-chunked chunkSize="104857600"&gt;
-     *     &lt;chunking:sliding-window maxCachedChunks="5" /&gt;
-     * &lt;/chunking:read-chunked&gt;
-     * &lt;scatter-gather&gt;
-     *     &lt;route&gt;&lt;foreach&gt;...&lt;/foreach&gt;&lt;/route&gt;
-     *     &lt;route&gt;&lt;foreach&gt;...&lt;/foreach&gt;&lt;/route&gt;
-     * &lt;/scatter-gather&gt;
-     * </pre>
-     *
-     * <h3>Example: In-Memory (⚠️ OOM Risk for Large Files)</h3>
-     * <pre>
-     * &lt;chunking:read-chunked chunkSize="104857600"&gt;
-     *     &lt;chunking:in-memory initialBufferSize="500" maxBufferSize="1000" /&gt;
-     * &lt;/chunking:read-chunked&gt;
-     * </pre>
-     *
-     * @param content The input stream to chunk
-     * @param chunkSize Size of each chunk in bytes (default: 1MB)
-     * @param streamingStrategy Controls memory usage and repeatability (default: non-repeatable)
-     * @param streamingHelper Mule's streaming helper for infrastructure delegation
-     * @return Iterator or CursorIteratorProvider depending on strategy
+     * @param content the content to chunk; the message payload by default
+     * @param chunkingStrategy how the content is cut into chunks: by-size or by-delimiter; when none is given, by size,
+     *        in chunks of 1 MB
+     * @param streamingStrategy how the chunks are held: non-repeatable, sliding-window, in-memory or file-store; when
+     *        none is given, non-repeatable, so the chunks can be read once, in order
+     * @return the chunks, as an iterator or as a repeatable provider of iterators, depending on the streaming
+     *         strategy
+     * @throws ModuleException if a value given to the operation is invalid, or the content is missing
      * @since 0.1.0
      */
     @DisplayName("Read Chunked")
     @Alias("read-chunked")
     @Throws(ChunkingErrorTypeProvider.class)
-    @Summary("Reads an input stream in chunks with configurable streaming strategy")
-    @org.mule.runtime.extension.api.annotation.param.MediaType(value = org.mule.runtime.extension.api.annotation.param.MediaType.ANY, strict = false)
+    @Summary("Reads content as a sequence of chunks, by size or by delimited records")
+    @MediaType(value = MediaType.ANY, strict = false)
     public Object readChunked(
-            @Content TypedValue<InputStream> content,
+        @Content TypedValue<InputStream> content,
 
-            @Optional(defaultValue = "1048576")
-            @DisplayName("Chunk Size")
-            @Summary("Size of each chunk in bytes (default: 1MB = 1048576 bytes)")
-            Integer chunkSize,
+        @Optional
+        @ParameterDsl(allowReferences = false)
+        @Expression(NOT_SUPPORTED)
+        @DisplayName("Chunking Strategy")
+        @Summary("How the content is cut into chunks: by-size or by-delimiter. Nothing chosen (None, or the box "
+            + "left unticked) means by size, in chunks of 1 MB.")
+        @Placement(order = 1)
+        ChunkingStrategy chunkingStrategy,
 
-            @Optional
-            @ParameterDsl(allowReferences = false)
-            @Expression(ExpressionSupport.NOT_SUPPORTED)
-            @DisplayName("Streaming Strategy")
-            @Summary("Controls memory usage and repeatability behavior (default: non-repeatable)")
-            ChunkingStreamingStrategy streamingStrategy,
+        @Optional
+        @ParameterDsl(allowReferences = false)
+        @Expression(NOT_SUPPORTED)
+        @DisplayName("Streaming Strategy")
+        @Summary("How the chunks are held: non-repeatable, sliding-window, in-memory or file-store. Nothing chosen "
+            + "(None, or the box left unticked) means non-repeatable: the chunks can be read once, in order.")
+        @Placement(order = 2)
+        ChunkingStreamingStrategy streamingStrategy) {
 
-            StreamingHelper streamingHelper) {
-
-        // Use provided chunk size or default
-        int effectiveChunkSize = (chunkSize != null && chunkSize > 0)
-            ? chunkSize
-            : 1048576;
-
-        if (effectiveChunkSize <= 0) {
-            throw new ModuleException(
-                ChunkingError.INVALID_CHUNK_SIZE,
-                new IllegalArgumentException("Chunk size must be positive: " + effectiveChunkSize)
-            );
-        }
-
-        InputStream inputStream = content.getValue();
-
+        InputStream inputStream = content == null ? null : content.getValue();
         if (inputStream == null) {
-            throw new ModuleException(
-                ChunkingError.READ_ERROR,
-                new IllegalArgumentException("Input stream is null")
-            );
+            throw new ModuleException("There is no content to chunk (got: null)", ChunkingError.READ_ERROR);
+        }
+        ChunkingStreamingStrategy strategy = streamingStrategy != null ? streamingStrategy : new NonRepeatableStrategy();
+        ChunkReader reader;
+        String description;
+        if (chunkingStrategy instanceof ByDelimiterStrategy) {
+            ByDelimiterStrategy byDelimiter = (ByDelimiterStrategy) chunkingStrategy;
+            byte[] delimiter = delimiterBytes(byDelimiter);
+            if (byDelimiter.getRecordsPerChunk() <= 0) {
+                throw new ModuleException("recordsPerChunk must be a positive number of records (got: "
+                    + byDelimiter.getRecordsPerChunk() + ")", ChunkingError.INVALID_RECORDS_PER_CHUNK);
+            }
+            if (byDelimiter.getMaxChunkSize() <= 0) {
+                throw new ModuleException("maxChunkSize must be a positive number of bytes (got: "
+                    + byDelimiter.getMaxChunkSize() + ")", ChunkingError.INVALID_CHUNK_SIZE);
+            }
+            reader = new ByDelimiterChunkReader(inputStream, delimiter, byDelimiter.getRecordsPerChunk(),
+                                                byDelimiter.getMaxChunkSize());
+            description = "by-delimiter (delimiter " + visible(byDelimiter.getDelimiter()) + " in "
+                + byDelimiter.getEncoding() + ", recordsPerChunk " + byDelimiter.getRecordsPerChunk()
+                + ", maxChunkSize " + byDelimiter.getMaxChunkSize() + " bytes)";
+        } else {
+            int chunkSize = chunkingStrategy instanceof BySizeStrategy
+                ? ((BySizeStrategy) chunkingStrategy).getChunkSize()
+                : DEFAULT_CHUNK_SIZE;
+            if (chunkSize <= 0) {
+                throw new ModuleException("chunkSize must be a positive number of bytes (got: " + chunkSize + ")",
+                                          ChunkingError.INVALID_CHUNK_SIZE);
+            }
+            reader = new BySizeChunkReader(inputStream, chunkSize);
+            description = "by-size (chunkSize " + chunkSize + " bytes)";
         }
 
-        // Default to non-repeatable if not specified
-        ChunkingStreamingStrategy strategy = streamingStrategy != null
-            ? streamingStrategy
-            : new NonRepeatableStrategy();
+        StreamingStrategies.validate(strategy);
+        LOGGER.debug("read-chunked: {}, streaming strategy {}", description, strategy);
+        return StreamingStrategies.apply(strategy, new ChunkIterator(reader));
+    }
 
-        LOGGER.info("Creating ChunkIterator: chunkSize={} bytes ({} MB), strategy={}",
-            effectiveChunkSize, effectiveChunkSize / 1024 / 1024, strategy.getClass().getSimpleName());
+    private static byte[] delimiterBytes(ByDelimiterStrategy byDelimiter) {
+        String encoding = byDelimiter.getEncoding();
+        Charset charset;
+        try {
+            charset = Charset.forName(encoding);
+        } catch (IllegalArgumentException e) { // includes IllegalCharsetNameException and UnsupportedCharsetException
+            throw new ModuleException("encoding is not a character encoding this runtime recognises (got: "
+                + encoding + ")", ChunkingError.INVALID_PARAMETER);
+        }
+        String delimiter = byDelimiter.getDelimiter();
+        byte[] bytes = delimiter == null ? new byte[0] : delimiter.getBytes(charset);
+        if (bytes.length == 0) {
+            throw new ModuleException("delimiter must not be empty (got: " + visible(delimiter) + ")",
+                                      ChunkingError.INVALID_DELIMITER);
+        }
+        return bytes;
+    }
 
-        // Determine if strategy needs immutable chunks (caching)
-        // Only NonRepeatableStrategy can use buffer reuse for constant memory
-        boolean reuseBuffer = strategy instanceof NonRepeatableStrategy;
-
-        LOGGER.debug("Iterator mode: reuseBuffer={} (constant memory: {})",
-            reuseBuffer, reuseBuffer);
-
-        // Create the chunk iterator with appropriate mode
-        Iterator<Chunk> iterator = new ChunkIterator(inputStream, effectiveChunkSize, reuseBuffer);
-
-        // Apply the streaming strategy
-        return strategy.apply(iterator, streamingHelper);
+    /** Renders text with control characters made visible, for messages and the log. */
+    static String visible(String text) {
+        if (text == null) {
+            return "null";
+        }
+        StringBuilder b = new StringBuilder("\"");
+        for (char c : text.toCharArray()) {
+            switch (c) {
+                case '\n': b.append("\\n"); break;
+                case '\r': b.append("\\r"); break;
+                case '\t': b.append("\\t"); break;
+                default:
+                    if (Character.isISOControl(c)) {
+                        b.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        b.append(c);
+                    }
+            }
+        }
+        return b.append('"').toString();
     }
 }

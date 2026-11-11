@@ -1,0 +1,9 @@
+2026-11-10T10:01:00 INFO request 1 handled
+2026-11-10T10:02:00 INFO request 2 handled
+2026-11-10T10:03:00 INFO request 3 handled
+2026-11-10T10:04:00 INFO request 4 handled
+2026-11-10T10:04:30 ERROR request 4 failed: stack frame; stack frame; stack frame; stack frame; stack frame; stack frame; stack frame; stack frame;
+2026-11-10T10:05:00 INFO request 5 handled
+2026-11-10T10:06:00 INFO request 6 handled
+2026-11-10T10:07:00 INFO request 7 handled
+2026-11-10T10:08:00 INFO request 8 handled

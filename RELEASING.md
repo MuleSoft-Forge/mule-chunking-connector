@@ -1,179 +1,187 @@
 # Releasing to Maven Central
 
-This guide documents the process for releasing the mule-chunking-connector to Maven Central.
+How a version of the mule-chunking-connector is released to Maven Central. The examples use 1.0.0-beta1.
+
+Signing, deploying and publishing need the maintainer's signing key and Maven Central account. Everything else
+here, including the full test run, can be done by any contributor.
+
+## The build baseline
+
+These are fixed for the connector and are not changed as part of other work:
+
+| | Version |
+|---|---|
+| Java, to build and as the compiler target | 17 |
+| Parent POM, `org.mule.extensions:mule-modules-parent` | 1.9.6 |
+| Mule SDK API, `org.mule.sdk:mule-sdk-api` | 0.11.4 |
+| MUnit | 3.4.0 |
+| MUnit extensions Maven plugin | 1.5.0 |
+
+The minimum Mule runtime, 4.9.6, follows from the parent POM.
+
+To propose a change to any of them, open an issue on this repository that says which value should change, why,
+and what you built and tested it with. A change to the baseline is made in a commit of its own, never alongside
+other work, and is released only with the full test run below passing.
+
+## Versions
+
+- **Between releases** the build file carries the next version to be released with `-SNAPSHOT`, such as
+  `1.0.0-SNAPSHOT`. A snapshot is never published.
+- **A release** carries a plain version such as `1.0.0` or `1.0.1`.
+- **A preview** carries a qualifier, such as `1.0.0-beta1`, and is released to Maven Central like any other
+  version so that it can be tried as a user would. Maven orders `1.0.0-beta1` before `1.0.0`. The README and the
+  changelog say plainly that it is a preview, which version it previews, and that the final version may differ;
+  the changelog gives it a dated entry of its own.
+- **The tag** for a version is `v` followed by the version: `v0.2.0`, `v1.0.0-beta1`.
 
 ## Prerequisites
 
-### 1. Java 17 Environment
+### Java 17
 
-**CRITICAL**: Always build with Java 17. Other versions (especially Java 24) will cause MUnit module resolution failures.
-
-```bash
-# Set JAVA_HOME to Temurin 17
-export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
-
-# Verify Java version
-$JAVA_HOME/bin/java -version
-# Should output: openjdk version "17.x.x"
-```
-
-### 2. GPG Key Configuration
-
-You need a GPG key registered with Maven Central for artifact signing.
+Always build with Java 17. Other versions, Java 24 in particular, make the MUnit tests fail to start.
 
 ```bash
-# List available keys
-gpg --list-secret-keys --keyid-format=long
-
-# Expected output should include MuleSoft Forge key:
-# sec   rsa4096/12EC221A65D2DFA7 ...
+export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home   # or wherever your JDK 17 is
+$JAVA_HOME/bin/java -version   # openjdk version "17.x.x"
 ```
 
-### 3. Maven Settings
+### For signing and publishing only
 
-Your `~/.m2/settings.xml` must include:
+- A GPG key registered with Maven Central for signing.
+- In your `~/.m2/settings.xml`: a server with the id `central` holding your Central Portal token
+  (https://central.sonatype.com), and a profile with the id `release` that sets `gpg.keyname` to your key:
 
-- **Central server credentials** (username/password from https://central.sonatype.com)
-- **Release profile** with GPG keyname configuration
+  ```xml
+  <profile>
+      <id>release</id>
+      <properties>
+          <gpg.keyname>YOUR_KEY_ID</gpg.keyname>
+      </properties>
+  </profile>
+  ```
 
-Example profile:
-```xml
-<profile>
-    <id>release</id>
-    <properties>
-        <gpg.keyname>12EC221A65D2DFA7</gpg.keyname>
-    </properties>
-</profile>
-```
+- Publishing rights to the `com.mulesoftforge` namespace on Maven Central.
 
-### 4. Repository Access
+## Release process
 
-Ensure you have publishing rights to the `com.mulesoftforge` groupId on Maven Central.
+The order matters: the version is published on Maven Central first, and only then is anything pushed or tagged,
+so that the repository never names a release that does not exist.
 
-## Release Process
+### Step 1: Prepare the release on a local `main`
 
-### Step 1: Update Version
+1. Set the version in `pom.xml`, from `1.0.0-SNAPSHOT` to `1.0.0-beta1`.
+2. Set the same version in the two places that tell a user which version to use: the dependency snippet under
+   Installation in `README.md`, and `chunking.connector.version` in `examples/chunking-sample-app/pom.xml`.
+3. Make sure the documentation is complete. A version is not released until:
+   - `README.md` describes every feature of the release;
+   - `CHANGELOG.md` has an entry for the version, with the release date, recording every change and every change
+     an application must make;
+   - the public API documentation is complete: every public type and member in the `api` packages has a
+     documentation comment with `@since`, and every element and setting the tools show has a description. See
+     [Checking the API documentation](#checking-the-api-documentation).
+4. Commit on your local `main`. Do not push yet.
 
-Edit `pom.xml` to remove `-SNAPSHOT` suffix:
-
-```xml
-<!-- Change from -->
-<version>0.2.0.7-SNAPSHOT</version>
-
-<!-- To -->
-<version>0.2.0</version>
-```
-
-Commit this change:
-```bash
-git add pom.xml
-git commit -m "Prepare release 0.2.0"
-```
-
-### Step 2: Run Full Test Suite
-
-Verify all tests pass before releasing:
+### Step 2: Run the full test suite and the sample application
 
 ```bash
-mvn clean test
+mvn clean install
 ```
 
-**Expected Output:**
+**Expected:** 56 unit tests, then 82 MUnit tests on Mule 4.9.6 in nine suites, all passing, and the connector
+installed in your local Maven repository under the release version:
+
 ```
-Tests run: 20, Failures: 0, Errors: 0, Skipped: 0
-- 19 JUnit tests (Java unit tests)
-- 1 MUnit test (Mule integration test)
+Tests run: 56, Failures: 0, Errors: 0, Skipped: 0
+...
+MUnit Run Summary - Product: MULE_EE, Version: 4.9.6
 ```
 
-### Step 3: Build and Sign Artifacts
+The suites are `chunking-strategy` 11, `errors` 6, `invalid-values` 17, `read-chunked` 1, `readme-examples` 12,
+`release` 6, `sliding-window` 9, `streaming-strategies` 15 and `streaming-strategy-element` 5.
 
-Build with the release profile to sign artifacts:
+Then build the sample application against the version just installed:
+
+```bash
+cd examples/chunking-sample-app
+mvn clean verify
+```
+
+**Expected:** 16 MUnit tests passing, and `BUILD SUCCESS`.
+
+### Step 3: Build and sign the artifacts
 
 ```bash
 mvn clean verify -Prelease
 ```
 
-**What happens:**
-1. Compiles and packages the connector
-2. Runs all tests (unit + MUnit)
-3. Generates sources and javadoc jars
-4. Signs all artifacts with GPG (you'll be prompted for passphrase)
+This runs every test again, builds the sources and test-sources jars, checks that neither the version nor any
+dependency is a snapshot, and signs every artifact with GPG (you are asked for the key's passphrase).
 
-**Expected Artifacts (7 files signed):**
-- `mule-chunking-connector-{version}.jar`
-- `mule-chunking-connector-{version}-mule-plugin.jar`
-- `mule-chunking-connector-{version}-sources.jar`
-- `mule-chunking-connector-{version}-javadoc.jar`
-- `mule-chunking-connector-{version}.pom`
-- Plus `.asc` signature files for each
+**Expected:** `BUILD SUCCESS`, with a `.asc` signature made for each of the seven artifacts:
 
-**Success Output:**
-```
-[INFO] BUILD SUCCESS
-[INFO] Total time: X.XXX s
-```
+- `mule-chunking-connector-1.0.0-beta1.pom`
+- `mule-chunking-connector-1.0.0-beta1.jar`
+- `mule-chunking-connector-1.0.0-beta1-mule-plugin.jar`
+- `mule-chunking-connector-1.0.0-beta1-javadoc.jar`
+- `mule-chunking-connector-1.0.0-beta1-sources.jar`
+- `mule-chunking-connector-1.0.0-beta1-test-sources.jar`
+- `mule-chunking-connector-1.0.0-beta1-extension-model-4.9.6.json`
 
-### Step 4: Deploy to Maven Central Portal
-
-Deploy signed artifacts to the Central Portal:
+### Step 4: Deploy to the Maven Central Portal
 
 ```bash
 mvn deploy -Prelease
 ```
 
-**Expected Output:**
+**Expected:**
+
 ```
 [INFO] Deployment succeeded. Deployment information:
 [INFO]    Publishing URL: https://central.sonatype.com/publishing/deployments/{deployment-id}
-[INFO]    Deployment Name: mule-chunking-connector-{version}
+[INFO]    Deployment Name: mule-chunking-connector-1.0.0-beta1
 [INFO]    Deployment State: VALIDATED
 ```
 
-**Save the deployment ID** from the output (e.g., `3595bf2b-b4f4-42e0-a677-b6191c665253`).
+Nothing is public yet: the release profile sets `autoPublish` to `false`.
 
-### Step 5: Publish on Central Portal
+### Step 5: Publish on the Central Portal
 
-Since `autoPublish` is set to `false` in pom.xml, you must manually publish:
+1. Open https://central.sonatype.com/publishing/deployments and sign in.
+2. Find the deployment `mule-chunking-connector-1.0.0-beta1`, in state Validated.
+3. Review its files: the seven above, each with its signature and checksums.
+4. Click **Publish**. The state moves to Publishing and then Published.
 
-1. Open https://central.sonatype.com/publishing/deployments
-2. Log in with your Central credentials
-3. Find your deployment by ID or name
-4. Review the uploaded artifacts
-5. Click **"Publish"** to release to Maven Central
+### Step 6: Confirm the version is on Maven Central
 
-**Note:** It may take 15-30 minutes for artifacts to appear in Maven Central search after publishing.
+It can take 15 to 30 minutes after publishing. The version is there when
+https://repo1.maven.org/maven2/com/mulesoftforge/mule-chunking-connector/1.0.0-beta1/ lists
+`mule-chunking-connector-1.0.0-beta1-mule-plugin.jar`, and
+https://repo1.maven.org/maven2/com/mulesoftforge/mule-chunking-connector/maven-metadata.xml lists `1.0.0-beta1`.
 
-### Step 6: Tag the Release
+Do not go on until it is there.
 
-Create an annotated git tag for the release:
-
-```bash
-git tag -a v0.2.0 -m "Release 0.2.0
-
-- Streaming strategies: non-repeatable, in-memory, file-store, sliding-window
-- Constant memory: Non-repeatable uses O(chunkSize) only
-- Bounded repeatability: Sliding-window with configurable cache
-- DataWeave zombie cursor workaround for foreach bug
-- Scatter-gather support with multiple foreach loops
-- Comprehensive error handling with CACHE_OVERFLOW type
-- All tests passing (19 unit + 1 MUnit)"
-```
-
-Push the tag to GitHub:
+### Step 7: Push `main` and tag the release
 
 ```bash
-git push origin v0.2.0
+git push origin main
+git tag -a v1.0.0-beta1 -m "Release 1.0.0-beta1
+
+A preview of 1.0.0: chunking by delimiter, streaming strategies that do what their settings say, and invalid
+values that fail. See CHANGELOG.md for every change from 0.2.0."
+git push origin v1.0.0-beta1
 ```
 
-### Step 7: Update to Next Development Version
+The tag message summarises the release for someone reading the repository's tags.
 
-Immediately after releasing, update pom.xml to the next SNAPSHOT version:
+### Step 8: Set the next development version
 
-```xml
-<version>0.2.1-SNAPSHOT</version>
-```
+Set the version in `pom.xml` to the next version to be released, with `-SNAPSHOT`:
 
-Commit and push:
+- after a preview, the version it previews: after `1.0.0-beta1`, `1.0.0-SNAPSHOT`;
+- after a release, the next patch version: after `1.0.0`, `1.0.1-SNAPSHOT`.
+
+Only the build file changes. The README and the sample application keep naming the released version, which anyone
+can download.
 
 ```bash
 git add pom.xml
@@ -181,170 +189,103 @@ git commit -m "Prepare for next development iteration"
 git push origin main
 ```
 
-## Verification
+## Checking the API documentation
 
-After publishing to Maven Central, verify the release:
-
-1. **Maven Central Search**: https://central.sonatype.com/artifact/com.mulesoftforge/mule-chunking-connector
-2. **Maven Repository**: https://repo1.maven.org/maven2/com/mulesoftforge/mule-chunking-connector/
-
-Test installation in a Mule project:
-
-```xml
-<dependency>
-    <groupId>com.mulesoftforge</groupId>
-    <artifactId>mule-chunking-connector</artifactId>
-    <version>0.2.0</version>
-    <classifier>mule-plugin</classifier>
-</dependency>
-```
+- **Documentation comments.** Generate the javadoc for the `api` packages with strict checking, using the
+  connector's classpath. `javadoc -Xdoclint:all -public` over `com.mulesoftforge.mule.extension.chunking.api` and
+  its subpackages should report no warning. Then check that every public type and member there has `@since`;
+  methods marked `@Override`, such as `toString`, take their documentation from the method they override.
+- **What the tools show.** The build packages `META-INF/chunking-extension-descriptions.xml` inside the
+  `-mule-plugin.jar`. Every element in it with a `name` (the extension, the configuration, the operation, its
+  parameters, and every strategy and setting) should have a non-empty description.
 
 ## Troubleshooting
 
-### Java Version Issues
+### Java version
 
 **Symptom:**
 ```
 java.lang.module.FindException: Module org.apache.logging.log4j not found
 ```
 
-**Solution:**
-Always use Java 17. Set `JAVA_HOME` before building:
-```bash
-export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
-```
+**Solution:** build with Java 17. Set `JAVA_HOME` as above.
 
-### MUnit Test Failures
+### MUnit tests and `config-ref`
 
 **Symptom:**
 ```
 cvc-complex-type.3.2.2: Attribute 'config-ref' is not allowed
 ```
 
-**Solution:**
-MUnit tests should use operations directly without config-ref:
+**Solution:** `read-chunked` takes no configuration. Use it without `config-ref`:
 ```xml
 <!-- Correct -->
-<chunking:read-chunked chunkSize="20"/>
+<chunking:read-chunked/>
 
 <!-- Incorrect -->
-<chunking:read-chunked config-ref="Chunking_Config" chunkSize="20"/>
+<chunking:read-chunked config-ref="Chunking_Config"/>
 ```
 
-### GPG Signing Issues
+### GPG signing
 
-**Symptom:** Build hangs or fails during GPG signing
+**Symptom:** the build hangs or fails while signing.
 
 **Solutions:**
-1. Ensure GPG agent is running: `gpg-agent --daemon`
-2. Test GPG signing manually: `echo "test" | gpg --clearsign`
-3. Allow pinentry prompt to complete without interruption
-4. If using terminal pinentry, ensure `GPG_TTY` is set: `export GPG_TTY=$(tty)`
+1. Make sure the GPG agent is running: `gpg-agent --daemon`
+2. Test signing by hand: `echo "test" | gpg --clearsign`
+3. Let the passphrase prompt complete without interruption.
+4. With a terminal passphrase prompt, set `GPG_TTY`: `export GPG_TTY=$(tty)`
 
-### Deployment Validation Errors
+### Deployment validation errors
 
-If deployment fails validation on Central Portal:
+If the Central Portal rejects the deployment:
 
-1. Check all required metadata is present in pom.xml:
-   - name, description, url
-   - licenses
-   - developers
-   - scm (connection, developerConnection, url)
+1. Check that `pom.xml` has the required metadata: name, description, url, licenses, developers, and scm
+   (connection, developerConnection, url).
+2. Check that every artifact is signed (a `.asc` beside each).
+3. Check that the groupId is `com.mulesoftforge`.
 
-2. Verify all artifacts are properly signed (`.asc` files present)
-
-3. Ensure groupId matches your Central namespace (`com.mulesoftforge`)
-
-## Release Checklist
+## Release checklist
 
 Before releasing:
 
-- [ ] All tests passing (19 unit + 1 MUnit)
-- [ ] Java 17 environment configured
-- [ ] Version updated from SNAPSHOT to release version
-- [ ] README.md updated with new version examples
-- [ ] CHANGELOG.md updated (if applicable)
-- [ ] GPG key available and configured
+- [ ] Java 17
+- [ ] Version set in `pom.xml`, the README's dependency snippet and the sample application
+- [ ] README describes the release
+- [ ] CHANGELOG has a dated entry for the version
+- [ ] API documentation complete
+- [ ] 56 unit and 82 MUnit tests passing; the sample's 16 passing against the installed version
+- [ ] Release commit on the local `main`, not pushed
 
-During release:
+Releasing:
 
-- [ ] `mvn clean verify -Prelease` succeeds
-- [ ] All 7 artifact files signed (.asc files present)
-- [ ] `mvn deploy -Prelease` succeeds with VALIDATED status
-- [ ] Manual publish completed on Central Portal
-- [ ] Git tag created and pushed
-- [ ] Version bumped to next SNAPSHOT
+- [ ] `mvn clean verify -Prelease` succeeds, seven artifacts signed
+- [ ] `mvn deploy -Prelease` succeeds with state VALIDATED
+- [ ] Published on the Central Portal
+- [ ] Version visible on Maven Central
+- [ ] `main` pushed; tag created and pushed
+- [ ] Next development version committed and pushed
 
-After release:
+After releasing:
 
-- [ ] Artifacts visible on Maven Central (wait 15-30 minutes)
-- [ ] Test installation in a Mule project
-- [ ] Update documentation site (if applicable)
-- [ ] Announce release (GitHub releases, community channels)
+- [ ] Add the version as a dependency to a Mule project and build it
+- [ ] Update the documentation site, for a release that is not a preview
+- [ ] Announce the release
 
-## Release Profile Configuration
+## The release profile
 
-The release profile in `pom.xml` includes:
+The `release` profile in `pom.xml`:
 
-```xml
-<profile>
-    <id>release</id>
-    <build>
-        <plugins>
-            <!-- GPG Signing -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-                <version>3.2.8</version>
-                <executions>
-                    <execution>
-                        <id>sign-artifacts</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sign</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- Central Publishing -->
-            <plugin>
-                <groupId>org.sonatype.central</groupId>
-                <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>0.8.0</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <publishingServerId>central</publishingServerId>
-                    <autoPublish>false</autoPublish>
-                    <deploymentName>${project.artifactId}-${project.version}</deploymentName>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
-</profile>
-```
-
-**Note:** `autoPublish: false` requires manual approval on Central Portal, allowing final review before public release.
-
-## Important Reminders
-
-1. **Never modify these without consulting the planning agent:**
-   - Parent POM version (`mule-modules-parent`)
-   - SDK version (`mule-sdk-api`)
-   - MUnit plugin versions
-   - Java compiler target version
-
-2. **Always use Java 17** - Other versions will cause module resolution failures
-
-3. **Manual publish required** - autoPublish is disabled for safety
-
-4. **Central Portal delay** - Allow 15-30 minutes for artifacts to sync to Maven Central after publishing
-
-5. **GPG passphrase** - Keep GPG key passphrase secure; it's required for every release
+- signs every artifact with `maven-gpg-plugin` in the `verify` phase;
+- skips the standard deploy, and uploads instead with `central-publishing-maven-plugin` to the server `central`,
+  as a deployment named `${project.artifactId}-${project.version}`, with `autoPublish` set to `false` so that a
+  person reviews and publishes it;
+- with the parent POM's profile of the same name, builds the sources and test-sources jars and checks that the
+  version and the dependencies are not snapshots and that every plugin's version is declared.
 
 ## References
 
-- **Maven Central Portal**: https://central.sonatype.com
-- **Central Publishing Documentation**: https://central.sonatype.org/publish/publish-portal-maven/
-- **MuleSoft Forge**: https://github.com/MuleSoft-Forge/mule-chunking-connector
-- **Maven Central Artifacts**: https://central.sonatype.com/artifact/com.mulesoftforge/mule-chunking-connector
+- Maven Central Portal: https://central.sonatype.com
+- Publishing with Maven: https://central.sonatype.org/publish/publish-portal-maven/
+- Repository: https://github.com/MuleSoft-Forge/mule-chunking-connector
+- The connector on Maven Central: https://central.sonatype.com/artifact/com.mulesoftforge/mule-chunking-connector

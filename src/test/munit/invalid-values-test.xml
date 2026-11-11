@@ -1,0 +1,498 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <munit:config name="invalid-values-test"/>
+
+    <munit:test name="invalid-chunk-size-zero-test" description="A chunk size of zero fails with INVALID_CHUNK_SIZE">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="0"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_CHUNK_SIZE">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_CHUNK_SIZE&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: 0)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-chunk-size-negative-test" description="A negative chunk size fails with INVALID_CHUNK_SIZE">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="-5"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_CHUNK_SIZE">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_CHUNK_SIZE&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: -5)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-max-chunk-size-test" description="A maximum chunk size of zero fails with INVALID_CHUNK_SIZE">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-delimiter recordsPerChunk="2" maxChunkSize="0"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_CHUNK_SIZE">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_CHUNK_SIZE&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: 0)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-records-per-chunk-test" description="A recordsPerChunk of zero fails with INVALID_RECORDS_PER_CHUNK">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-delimiter recordsPerChunk="0"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_RECORDS_PER_CHUNK">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_RECORDS_PER_CHUNK&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: 0)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+
+    <munit:test name="invalid-delimiter-empty-expression-test" description="A delimiter expression giving empty text fails with INVALID_DELIMITER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-delimiter delimiter="#['']" recordsPerChunk="2"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_DELIMITER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_DELIMITER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: \&quot;\&quot;)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-encoding-test" description="An encoding the runtime does not recognise fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-delimiter encoding="NOT-AN-ENCODING" recordsPerChunk="2"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: NOT-AN-ENCODING)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-sliding-window-readers-zero-test" description="A sliding-window readers of 0 fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="10"/>
+                    </chunking:chunking-strategy>
+                    <chunking:streaming-strategy>
+                        <chunking:sliding-window readers="0"/>
+                    </chunking:streaming-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::equalTo(&quot;sliding-window readers must be a positive number of readers, or not set (got: 0)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-sliding-window-readers-negative-test" description="A sliding-window readers of -1 fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="10"/>
+                    </chunking:chunking-strategy>
+                    <chunking:streaming-strategy>
+                        <chunking:sliding-window readers="-1"/>
+                    </chunking:streaming-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::equalTo(&quot;sliding-window readers must be a positive number of readers, or not set (got: -1)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-sliding-window-max-in-memory-chunks-zero-test" description="A sliding-window maxInMemoryChunks of 0 fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="10"/>
+                    </chunking:chunking-strategy>
+                    <chunking:streaming-strategy>
+                        <chunking:sliding-window maxInMemoryChunks="0"/>
+                    </chunking:streaming-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::equalTo(&quot;sliding-window maxInMemoryChunks must be a positive number of chunks (got: 0)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-sliding-window-max-in-memory-chunks-negative-test" description="A sliding-window maxInMemoryChunks of -1 fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="10"/>
+                    </chunking:chunking-strategy>
+                    <chunking:streaming-strategy>
+                        <chunking:sliding-window maxInMemoryChunks="-1"/>
+                    </chunking:streaming-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::equalTo(&quot;sliding-window maxInMemoryChunks must be a positive number of chunks (got: -1)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-in-memory-max-in-memory-chunks-zero-test" description="A in-memory maxInMemoryChunks of 0 fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="10"/>
+                    </chunking:chunking-strategy>
+                    <chunking:streaming-strategy>
+                        <chunking:in-memory maxInMemoryChunks="0"/>
+                    </chunking:streaming-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::equalTo(&quot;in-memory maxInMemoryChunks must be a positive number of chunks (got: 0)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-in-memory-max-in-memory-chunks-negative-test" description="A in-memory maxInMemoryChunks of -1 fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="10"/>
+                    </chunking:chunking-strategy>
+                    <chunking:streaming-strategy>
+                        <chunking:in-memory maxInMemoryChunks="-1"/>
+                    </chunking:streaming-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::equalTo(&quot;in-memory maxInMemoryChunks must be a positive number of chunks (got: -1)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-file-store-max-in-memory-chunks-zero-test" description="A file-store maxInMemoryChunks of 0 fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="10"/>
+                    </chunking:chunking-strategy>
+                    <chunking:streaming-strategy>
+                        <chunking:file-store maxInMemoryChunks="0"/>
+                    </chunking:streaming-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::equalTo(&quot;file-store maxInMemoryChunks must be a positive number of chunks (got: 0)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-file-store-max-in-memory-chunks-negative-test" description="A file-store maxInMemoryChunks of -1 fails with INVALID_PARAMETER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="10"/>
+                    </chunking:chunking-strategy>
+                    <chunking:streaming-strategy>
+                        <chunking:file-store maxInMemoryChunks="-1"/>
+                    </chunking:streaming-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_PARAMETER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::equalTo(&quot;file-store maxInMemoryChunks must be a positive number of chunks (got: -1)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-parameter-catches-invalid-chunk-size-test" description="The parent INVALID_PARAMETER catches INVALID_CHUNK_SIZE">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-size chunkSize="0"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_CHUNK_SIZE&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: 0)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-parameter-catches-invalid-records-per-chunk-test" description="The parent INVALID_PARAMETER catches INVALID_RECORDS_PER_CHUNK">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-delimiter recordsPerChunk="-1"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_RECORDS_PER_CHUNK&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: -1)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="invalid-parameter-catches-invalid-delimiter-test" description="The parent INVALID_PARAMETER catches INVALID_DELIMITER">
+        <munit:execution>
+            <set-payload value='#["a\nb\n"]'/>
+            <set-variable variableName="caught" value="nothing"/>
+            <try>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy>
+                        <chunking:by-delimiter delimiter="#['']" recordsPerChunk="2"/>
+                    </chunking:chunking-strategy>
+                </chunking:read-chunked>
+                <error-handler>
+                    <on-error-continue type="CHUNKING:INVALID_PARAMETER">
+                        <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                        <set-variable variableName="description" value="#[error.description]"/>
+                    </on-error-continue>
+                    <on-error-continue type="ANY">
+                        <set-variable variableName="caught" value="#['other handler: ' ++ error.errorType.namespace ++ ':' ++ error.errorType.identifier]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.caught]" is="#[MunitTools::equalTo(&quot;CHUNKING:INVALID_DELIMITER&quot;)]"/>
+            <munit-tools:assert-that expression="#[vars.description]" is="#[MunitTools::containsString(&quot;(got: \&quot;\&quot;)&quot;)]"/>
+        </munit:validation>
+    </munit:test>
+</mule>

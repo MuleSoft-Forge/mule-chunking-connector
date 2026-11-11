@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <!-- The operation with no settings: chunks of 1 MB, non-repeatable. The bundled file fits in one chunk. -->
+    <flow name="bare-operation" doc:name="Bare operation">
+        <http:listener config-ref="Local_HTTP" path="/bare-operation" allowedMethods="GET" doc:name="GET /bare-operation"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked (1 MB chunks)"/>
+        <set-variable variableName="chunks" value="#[[]]" doc:name="No chunks seen yet"/>
+        <foreach doc:name="For each chunk">
+            <logger level="INFO" message="#['Chunk $(payload.index): $(payload.length) bytes, $(payload.recordCount default 0) records, first $(payload.first), last $(payload.last)']" doc:name="Log the chunk"/>
+            <set-variable variableName="chunks" value="#[vars.chunks + {index: payload.index, offset: payload.offset, length: payload.length, first: payload.first, last: payload.last, recordCount: payload.recordCount}]" doc:name="Record the chunk"/>
+        </foreach>
+        <set-payload value="#[output application/json --- {chunks: vars.chunks}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- Chunks of 256 bytes; the last holds what is left. recordCount is empty. -->
+    <flow name="by-size" doc:name="Chunk by size">
+        <http:listener config-ref="Local_HTTP" path="/by-size" allowedMethods="GET" doc:name="GET /by-size"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked by size">
+            <chunking:chunking-strategy>
+                <chunking:by-size chunkSize="256"/>
+            </chunking:chunking-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="chunks" value="#[[]]" doc:name="No chunks seen yet"/>
+        <foreach doc:name="For each chunk">
+            <logger level="INFO" message="#['Chunk $(payload.index): $(payload.length) bytes, $(payload.recordCount default 0) records, first $(payload.first), last $(payload.last)']" doc:name="Log the chunk"/>
+            <set-variable variableName="chunks" value="#[vars.chunks + {index: payload.index, offset: payload.offset, length: payload.length, first: payload.first, last: payload.last, recordCount: payload.recordCount}]" doc:name="Record the chunk"/>
+        </foreach>
+        <set-payload value="#[output application/json --- {chunks: vars.chunks}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- Ten lines per chunk; the delimiter defaults to a newline. 31 lines give chunks of 10, 10, 10 and 1. -->
+    <flow name="by-delimiter-default-newline" doc:name="Chunk by delimiter, default newline">
+        <http:listener config-ref="Local_HTTP" path="/by-delimiter-default-newline" allowedMethods="GET" doc:name="GET /by-delimiter-default-newline"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked, 10 lines per chunk">
+            <chunking:chunking-strategy>
+                <chunking:by-delimiter recordsPerChunk="10"/>
+            </chunking:chunking-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="chunks" value="#[[]]" doc:name="No chunks seen yet"/>
+        <foreach doc:name="For each chunk">
+            <logger level="INFO" message="#['Chunk $(payload.index): $(payload.length) bytes, $(payload.recordCount default 0) records, first $(payload.first), last $(payload.last)']" doc:name="Log the chunk"/>
+            <set-variable variableName="chunks" value="#[vars.chunks + {index: payload.index, offset: payload.offset, length: payload.length, first: payload.first, last: payload.last, recordCount: payload.recordCount}]" doc:name="Record the chunk"/>
+        </foreach>
+        <set-payload value="#[output application/json --- {chunks: vars.chunks}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- Records end with the ASCII record separator (0x1E), which cannot be typed, so the delimiter is an expression. 12 records give 5, 5 and 2. -->
+    <flow name="by-delimiter-expression" doc:name="Chunk by delimiter given as an expression">
+        <http:listener config-ref="Local_HTTP" path="/by-delimiter-expression" allowedMethods="GET" doc:name="GET /by-delimiter-expression"/>
+        <set-payload value="#[readUrl('classpath://data/events.rs', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked, records end with RS">
+            <chunking:chunking-strategy>
+                <chunking:by-delimiter delimiter="#['\u001e']" recordsPerChunk="5"/>
+            </chunking:chunking-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="chunks" value="#[[]]" doc:name="No chunks seen yet"/>
+        <foreach doc:name="For each chunk">
+            <logger level="INFO" message="#['Chunk $(payload.index): $(payload.length) bytes, $(payload.recordCount default 0) records, first $(payload.first), last $(payload.last)']" doc:name="Log the chunk"/>
+            <set-variable variableName="chunks" value="#[vars.chunks + {index: payload.index, offset: payload.offset, length: payload.length, first: payload.first, last: payload.last, recordCount: payload.recordCount}]" doc:name="Record the chunk"/>
+        </foreach>
+        <set-payload value="#[output application/json --- {chunks: vars.chunks}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- Lines of 43 bytes and one of 148. The chunk with the long line cannot take a third line within 200 bytes, so it ends early with 2 records: recordCount shows 3, 2, 3, 1, and no error is raised. -->
+    <flow name="short-chunk-max-chunk-size" doc:name="A short chunk caused by the maximum chunk size">
+        <http:listener config-ref="Local_HTTP" path="/short-chunk-max-chunk-size" allowedMethods="GET" doc:name="GET /short-chunk-max-chunk-size"/>
+        <set-payload value="#[readUrl('classpath://data/app.log', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked, 3 lines, at most 200 bytes">
+            <chunking:chunking-strategy>
+                <chunking:by-delimiter recordsPerChunk="3" maxChunkSize="200"/>
+            </chunking:chunking-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="chunks" value="#[[]]" doc:name="No chunks seen yet"/>
+        <foreach doc:name="For each chunk">
+            <choice doc:name="Short chunk?">
+                <when expression="#[not payload.last and payload.recordCount &lt; 3]">
+                    <logger level="WARN" message="#['Chunk $(payload.index) holds only $(payload.recordCount) of 3 records: the next record would pass maxChunkSize']" doc:name="Log the short chunk"/>
+                </when>
+            </choice>
+            <set-variable variableName="chunks" value="#[vars.chunks + {index: payload.index, length: payload.length, recordCount: payload.recordCount, last: payload.last}]" doc:name="Record the chunk"/>
+        </foreach>
+        <set-payload value="#[output application/json --- {chunks: vars.chunks}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- Read once: the first pass sees all 7 chunks, the second sees none. -->
+    <flow name="streaming-non-repeatable" doc:name="Streaming strategy: non-repeatable">
+        <http:listener config-ref="Local_HTTP" path="/streaming-non-repeatable" allowedMethods="GET" doc:name="GET /streaming-non-repeatable"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked, non-repeatable">
+            <chunking:chunking-strategy>
+                <chunking:by-delimiter recordsPerChunk="5"/>
+            </chunking:chunking-strategy>
+            <chunking:streaming-strategy>
+                <chunking:non-repeatable/>
+            </chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="firstPass" value="#[0]" doc:name="First pass: 0"/>
+        <set-variable variableName="secondPass" value="#[0]" doc:name="Second pass: 0"/>
+        <foreach doc:name="First pass">
+            <set-variable variableName="firstPass" value="#[vars.firstPass + 1]" doc:name="Count"/>
+        </foreach>
+        <foreach doc:name="Second pass">
+            <set-variable variableName="secondPass" value="#[vars.secondPass + 1]" doc:name="Count"/>
+        </foreach>
+        <set-payload value="#[output application/json --- {firstPass: vars.firstPass, secondPass: vars.secondPass}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- Two readers at the same time: both routes of a scatter-gather read all 7 chunks, and with readers="2" each chunk
+         is let go as soon as both routes have read it. The limit of 10 leaves room for one route to run ahead. -->
+    <flow name="streaming-sliding-window" doc:name="Streaming strategy: sliding-window">
+        <http:listener config-ref="Local_HTTP" path="/streaming-sliding-window" allowedMethods="GET" doc:name="GET /streaming-sliding-window"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked, sliding-window, two readers">
+            <chunking:chunking-strategy>
+                <chunking:by-delimiter recordsPerChunk="5"/>
+            </chunking:chunking-strategy>
+            <chunking:streaming-strategy>
+                <chunking:sliding-window maxInMemoryChunks="10" readers="2"/>
+            </chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="read" value="#[0]" doc:name="Chunks read: 0"/>
+        <scatter-gather doc:name="Two readers at once">
+            <route>
+                <foreach doc:name="Route 1 reads">
+                    <logger level="INFO" message="#['Route 1, chunk $(payload.index)']" doc:name="Log the chunk"/>
+                    <set-variable variableName="read" value="#[vars.read + 1]" doc:name="Count"/>
+                </foreach>
+                <set-payload value="#[vars.read]" doc:name="Route 1's count"/>
+            </route>
+            <route>
+                <foreach doc:name="Route 2 reads">
+                    <logger level="INFO" message="#['Route 2, chunk $(payload.index)']" doc:name="Log the chunk"/>
+                    <set-variable variableName="read" value="#[vars.read + 1]" doc:name="Count"/>
+                </foreach>
+                <set-payload value="#[vars.read]" doc:name="Route 2's count"/>
+            </route>
+        </scatter-gather>
+        <set-payload value="#[output application/json --- {route1: payload['0'].payload, route2: payload['1'].payload}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- Fully repeatable: at most 20 chunks held in memory. Both passes see all 7 chunks. -->
+    <flow name="streaming-in-memory" doc:name="Streaming strategy: in-memory">
+        <http:listener config-ref="Local_HTTP" path="/streaming-in-memory" allowedMethods="GET" doc:name="GET /streaming-in-memory"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked, in-memory">
+            <chunking:chunking-strategy>
+                <chunking:by-delimiter recordsPerChunk="5"/>
+            </chunking:chunking-strategy>
+            <chunking:streaming-strategy>
+                <chunking:in-memory maxInMemoryChunks="20"/>
+            </chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="firstPass" value="#[0]" doc:name="First pass: 0"/>
+        <set-variable variableName="secondPass" value="#[0]" doc:name="Second pass: 0"/>
+        <foreach doc:name="First pass">
+            <set-variable variableName="firstPass" value="#[vars.firstPass + 1]" doc:name="Count"/>
+        </foreach>
+        <foreach doc:name="Second pass">
+            <set-variable variableName="secondPass" value="#[vars.secondPass + 1]" doc:name="Count"/>
+        </foreach>
+        <set-payload value="#[output application/json --- {firstPass: vars.firstPass, secondPass: vars.secondPass}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- 2 chunks in memory, the rest in a temporary file. Both routes of a scatter-gather read every chunk. -->
+    <flow name="streaming-file-store" doc:name="Streaming strategy: file-store">
+        <http:listener config-ref="Local_HTTP" path="/streaming-file-store" allowedMethods="GET" doc:name="GET /streaming-file-store"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <chunking:read-chunked doc:name="Read chunked, file-store">
+            <chunking:chunking-strategy>
+                <chunking:by-delimiter recordsPerChunk="5"/>
+            </chunking:chunking-strategy>
+            <chunking:streaming-strategy>
+                <chunking:file-store maxInMemoryChunks="2"/>
+            </chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="firstPass" value="#[0]" doc:name="Route 1: 0"/>
+        <set-variable variableName="secondPass" value="#[0]" doc:name="Route 2: 0"/>
+        <scatter-gather doc:name="Two routes read every chunk">
+            <route>
+                <foreach doc:name="Route 1">
+                    <logger level="INFO" message="#['Route 1, chunk $(payload.index)']" doc:name="Log"/>
+                </foreach>
+            </route>
+            <route>
+                <foreach doc:name="Route 2">
+                    <logger level="INFO" message="#['Route 2, chunk $(payload.index)']" doc:name="Log"/>
+                </foreach>
+            </route>
+        </scatter-gather>
+        <set-variable variableName="firstPass" value="#[sizeOf(payload)]" doc:name="Routes completed"/>
+        <set-variable variableName="secondPass" value="#[sizeOf(payload)]" doc:name="Routes completed"/>
+        <set-payload value="#[output application/json --- {firstPass: vars.firstPass, secondPass: vars.secondPass}]" doc:name="Summary as JSON"/>
+    </flow>
+
+</mule>

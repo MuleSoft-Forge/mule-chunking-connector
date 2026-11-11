@@ -6,7 +6,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.mulesoftforge</groupId>
     <artifactId>mule-chunking-connector</artifactId>
-    <version>0.2.1</version>
+    <version>1.0.0-beta1</version>
     <packaging>mule-extension</packaging>
 
     <name>MuleSoft Chunking Connector</name>
@@ -56,16 +56,19 @@
         </dependency>
 
         <!-- Testing -->
+        <!-- An HTTP listener starts the flows of the tests that need a real message source: Mule releases the
+             chunks at the end of an event started by a source, which a test's flow-ref never does. -->
+        <dependency>
+            <groupId>org.mule.connectors</groupId>
+            <artifactId>mule-http-connector</artifactId>
+            <version>1.9.3</version>
+            <classifier>mule-plugin</classifier>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>5.10.0</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>2.0.9</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

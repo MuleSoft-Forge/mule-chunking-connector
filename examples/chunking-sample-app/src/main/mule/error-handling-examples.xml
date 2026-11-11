@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <!-- A chunk size of 0 fails with CHUNKING:INVALID_CHUNK_SIZE. -->
+    <flow name="error-invalid-chunk-size" doc:name="Error: INVALID_CHUNK_SIZE">
+        <http:listener config-ref="Local_HTTP" path="/error-invalid-chunk-size" allowedMethods="GET" doc:name="GET /error-invalid-chunk-size"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <try doc:name="Try">
+            <chunking:read-chunked doc:name="chunkSize 0">
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="0"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="caught" value="nothing" doc:name="No error"/>
+            <error-handler>
+                <on-error-continue type="CHUNKING:INVALID_CHUNK_SIZE" doc:name="On CHUNKING:INVALID_CHUNK_SIZE">
+                    <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]" doc:name="Error type"/>
+                    <set-variable variableName="description" value="#[error.description]" doc:name="Description"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <set-payload value="#[output application/json --- {handledBy: 'CHUNKING:INVALID_CHUNK_SIZE', caught: vars.caught, description: vars.description}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- A recordsPerChunk of 0 fails with CHUNKING:INVALID_RECORDS_PER_CHUNK. -->
+    <flow name="error-invalid-records-per-chunk" doc:name="Error: INVALID_RECORDS_PER_CHUNK">
+        <http:listener config-ref="Local_HTTP" path="/error-invalid-records-per-chunk" allowedMethods="GET" doc:name="GET /error-invalid-records-per-chunk"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <try doc:name="Try">
+            <chunking:read-chunked doc:name="recordsPerChunk 0">
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="0"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="caught" value="nothing" doc:name="No error"/>
+            <error-handler>
+                <on-error-continue type="CHUNKING:INVALID_RECORDS_PER_CHUNK" doc:name="On CHUNKING:INVALID_RECORDS_PER_CHUNK">
+                    <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]" doc:name="Error type"/>
+                    <set-variable variableName="description" value="#[error.description]" doc:name="Description"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <set-payload value="#[output application/json --- {handledBy: 'CHUNKING:INVALID_RECORDS_PER_CHUNK', caught: vars.caught, description: vars.description}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- A delimiter expression giving empty text fails with CHUNKING:INVALID_DELIMITER. -->
+    <flow name="error-invalid-delimiter" doc:name="Error: INVALID_DELIMITER">
+        <http:listener config-ref="Local_HTTP" path="/error-invalid-delimiter" allowedMethods="GET" doc:name="GET /error-invalid-delimiter"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <try doc:name="Try">
+            <chunking:read-chunked doc:name="Empty delimiter">
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter delimiter="#['']" recordsPerChunk="10"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="caught" value="nothing" doc:name="No error"/>
+            <error-handler>
+                <on-error-continue type="CHUNKING:INVALID_DELIMITER" doc:name="On CHUNKING:INVALID_DELIMITER">
+                    <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]" doc:name="Error type"/>
+                    <set-variable variableName="description" value="#[error.description]" doc:name="Description"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <set-payload value="#[output application/json --- {handledBy: 'CHUNKING:INVALID_DELIMITER', caught: vars.caught, description: vars.description}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- An encoding the runtime does not recognise fails with CHUNKING:INVALID_PARAMETER itself. -->
+    <flow name="error-invalid-parameter" doc:name="Error: INVALID_PARAMETER">
+        <http:listener config-ref="Local_HTTP" path="/error-invalid-parameter" allowedMethods="GET" doc:name="GET /error-invalid-parameter"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <try doc:name="Try">
+            <chunking:read-chunked doc:name="Unknown encoding">
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter encoding="NOT-AN-ENCODING" recordsPerChunk="10"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="caught" value="nothing" doc:name="No error"/>
+            <error-handler>
+                <on-error-continue type="CHUNKING:INVALID_PARAMETER" doc:name="On CHUNKING:INVALID_PARAMETER">
+                    <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]" doc:name="Error type"/>
+                    <set-variable variableName="description" value="#[error.description]" doc:name="Description"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <set-payload value="#[output application/json --- {handledBy: 'CHUNKING:INVALID_PARAMETER', caught: vars.caught, description: vars.description}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- A handler for the parent CHUNKING:INVALID_PARAMETER catches CHUNKING:INVALID_CHUNK_SIZE. -->
+    <flow name="error-parent-type" doc:name="Error: the parent INVALID_PARAMETER catches its children">
+        <http:listener config-ref="Local_HTTP" path="/error-parent-type" allowedMethods="GET" doc:name="GET /error-parent-type"/>
+        <set-payload value="#[readUrl('classpath://data/orders.csv', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <try doc:name="Try">
+            <chunking:read-chunked doc:name="maxChunkSize -1">
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="10" maxChunkSize="-1"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="caught" value="nothing" doc:name="No error"/>
+            <error-handler>
+                <on-error-continue type="CHUNKING:INVALID_PARAMETER" doc:name="On CHUNKING:INVALID_PARAMETER">
+                    <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]" doc:name="Error type"/>
+                    <set-variable variableName="description" value="#[error.description]" doc:name="Description"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <set-payload value="#[output application/json --- {handledBy: 'CHUNKING:INVALID_PARAMETER', caught: vars.caught, description: vars.description}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- No content to read fails with CHUNKING:READ_ERROR. -->
+    <flow name="error-no-content" doc:name="Error: READ_ERROR">
+        <http:listener config-ref="Local_HTTP" path="/error-no-content" allowedMethods="GET" doc:name="GET /error-no-content"/>
+        <set-payload value="#[null]" doc:name="Bundled data"/>
+        <try doc:name="Try">
+            <chunking:read-chunked doc:name="No content"/>
+            <set-variable variableName="caught" value="nothing" doc:name="No error"/>
+            <error-handler>
+                <on-error-continue type="CHUNKING:READ_ERROR" doc:name="On CHUNKING:READ_ERROR">
+                    <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]" doc:name="Error type"/>
+                    <set-variable variableName="description" value="#[error.description]" doc:name="Description"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <set-payload value="#[output application/json --- {handledBy: 'CHUNKING:READ_ERROR', caught: vars.caught, description: vars.description}]" doc:name="Summary as JSON"/>
+    </flow>
+
+    <!-- The 148-byte line cannot fit within 100 bytes. The failure happens while foreach reads, after the chunks before it, and Mule reports it as MULE:UNKNOWN, a type an error handler cannot name, so it is handled with ANY. The description ends with the connector message. -->
+    <flow name="error-failure-while-reading" doc:name="Error: a failure while foreach reads the chunks">
+        <http:listener config-ref="Local_HTTP" path="/error-failure-while-reading" allowedMethods="GET" doc:name="GET /error-failure-while-reading"/>
+        <set-payload value="#[readUrl('classpath://data/app.log', 'application/octet-stream')]" doc:name="Bundled data"/>
+        <try doc:name="Try">
+            <chunking:read-chunked doc:name="At most 100 bytes per chunk">
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="3" maxChunkSize="100"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <foreach doc:name="For each chunk">
+                <logger level="INFO" message="#['Chunk $(payload.index)']" doc:name="Log the chunk"/>
+            </foreach>
+            <set-variable variableName="caught" value="nothing" doc:name="No error"/>
+            <error-handler>
+                <on-error-continue type="ANY" doc:name="On any error">
+                    <set-variable variableName="caught" value="#[error.errorType.namespace ++ ':' ++ error.errorType.identifier]" doc:name="Error type"/>
+                    <set-variable variableName="description" value="#[error.description]" doc:name="Description"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+        <set-payload value="#[output application/json --- {handledBy: 'ANY', caught: vars.caught, description: vars.description}]" doc:name="Summary as JSON"/>
+    </flow>
+
+</mule>

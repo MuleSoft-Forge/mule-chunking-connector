@@ -1,0 +1,1 @@
+event-1|type=sample|value=7event-2|type=sample|value=14event-3|type=sample|value=21event-4|type=sample|value=28event-5|type=sample|value=35event-6|type=sample|value=42event-7|type=sample|value=49event-8|type=sample|value=56event-9|type=sample|value=63event-10|type=sample|value=70event-11|type=sample|value=77event-12|type=sample|value=84

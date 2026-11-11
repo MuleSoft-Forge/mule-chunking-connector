@@ -18,7 +18,11 @@
             <set-payload value='#["Hello, World! This is a test of binary streaming."]' />
 
             <!-- Call read-chunked operation with 20-byte chunks -->
-            <chunking:read-chunked chunkSize="20"/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="20"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
 
             <!-- Collect chunks using foreach -->
             <set-variable variableName="chunkCount" value="#[0]"/>

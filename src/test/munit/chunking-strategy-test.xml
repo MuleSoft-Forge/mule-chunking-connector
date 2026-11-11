@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <munit:config name="chunking-strategy-test"/>
+
+    <munit:test name="bare-operation-chunks-by-size-at-one-megabyte-test" description="With no chunking strategy the content is cut by size at 1 MB">
+        <munit:execution>
+            <set-payload value='#["Hello, World! This is a test of binary streaming."]'/>
+            <chunking:read-chunked/>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.length]" is="#[MunitTools::equalTo([49])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.recordCount]" is="#[MunitTools::equalTo([null])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks[0].first and vars.chunks[0].last]" is="#[MunitTools::equalTo(true)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="bare-operation-cuts-large-content-at-one-megabyte-test" description="With no chunking strategy, 2.5 MB of content gives 1 MB, 1 MB and 0.5 MB chunks">
+        <munit:execution>
+            <set-payload value='#[(1 to 2621440) map "x" joinBy ""]'/>
+            <chunking:read-chunked/>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.length]" is="#[MunitTools::equalTo([1048576, 1048576, 524288])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-size-test" description="by-size cuts the content into chunks of chunkSize bytes, each holding exactly its bytes">
+        <munit:execution>
+            <set-payload value='#["Hello, World! This is a test of binary streaming."]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="20"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.text]" is="#[MunitTools::equalTo([&quot;Hello, World! This i&quot;, &quot;s a test of binary s&quot;, &quot;treaming.&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.dataSize]" is="#[MunitTools::equalTo([20, 20, 9])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.recordCount]" is="#[MunitTools::equalTo([null, null, null])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.last]" is="#[MunitTools::equalTo([false, false, true])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-default-newline-test" description="by-delimiter with no delimiter given cuts at newlines">
+        <munit:execution>
+            <set-payload value='#["one\ntwo\nthree\nfour\nfive\n"]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="2"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.text]" is="#[MunitTools::equalTo([&quot;one\ntwo\n&quot;, &quot;three\nfour\n&quot;, &quot;five\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.recordCount]" is="#[MunitTools::equalTo([2, 2, 1])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.last]" is="#[MunitTools::equalTo([false, false, true])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-text-delimiter-test" description="by-delimiter with a delimiter given as text">
+        <munit:execution>
+            <set-payload value='#["a||b||c||d"]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter delimiter="||" recordsPerChunk="3"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.text]" is="#[MunitTools::equalTo([&quot;a||b||c||&quot;, &quot;d&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.recordCount]" is="#[MunitTools::equalTo([3, 1])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-expression-delimiter-test" description="by-delimiter with a delimiter given as a DataWeave expression">
+        <munit:execution>
+            <set-payload value='#["r1\r\nr2\r\nr3\r\n"]'/>
+            <set-variable variableName="separator" value="#[&quot;\r\n&quot;]"/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter delimiter="#[vars.separator]" recordsPerChunk="2"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.text]" is="#[MunitTools::equalTo([&quot;r1\r\nr2\r\n&quot;, &quot;r3\r\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.recordCount]" is="#[MunitTools::equalTo([2, 1])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-encoding-test" description="by-delimiter turns the delimiter into bytes with the given encoding">
+        <munit:execution>
+            <set-payload value='#[dw::core::Binaries::fromHex("78A779A77A")]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter delimiter="&#167;" encoding="ISO-8859-1" recordsPerChunk="1"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.length]" is="#[MunitTools::equalTo([2, 2, 1])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.recordCount]" is="#[MunitTools::equalTo([1, 1, 1])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-utf8-encoding-does-not-match-other-bytes-test" description="The same delimiter in the default UTF-8 does not match its ISO-8859-1 byte">
+        <munit:execution>
+            <set-payload value='#[dw::core::Binaries::fromHex("78A779A77A")]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter delimiter="&#167;" recordsPerChunk="1"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.length]" is="#[MunitTools::equalTo([5])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.recordCount]" is="#[MunitTools::equalTo([1])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-max-chunk-size-short-chunk-test" description="A chunk ends early when the next record would pass maxChunkSize, and recordCount shows it">
+        <munit:execution>
+            <set-payload value='#["aaa\nbbb\nccccc\nd\n"]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="3" maxChunkSize="10"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.chunks.text]" is="#[MunitTools::equalTo([&quot;aaa\nbbb\n&quot;, &quot;ccccc\nd\n&quot;])]"/>
+            <munit-tools:assert-that expression="#[vars.chunks.recordCount]" is="#[MunitTools::equalTo([2, 2])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-delimiter-empty-content-test" description="Empty content produces no chunks">
+        <munit:execution>
+            <set-payload value='#[""]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-delimiter recordsPerChunk="2"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[sizeOf(vars.chunks)]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="by-size-empty-content-test" description="Empty content produces no chunks when chunking by size">
+        <munit:execution>
+            <set-payload value='#[""]'/>
+            <chunking:read-chunked>
+                <chunking:chunking-strategy>
+                    <chunking:by-size chunkSize="10"/>
+                </chunking:chunking-strategy>
+            </chunking:read-chunked>
+            <set-variable variableName="chunks" value="#[[]]"/>
+            <foreach>
+                <set-variable variableName="chunks" value="#[vars.chunks + {text: payload.data as String {encoding: 'UTF-8'}, length: payload.length, dataSize: sizeOf(payload.data), recordCount: payload.recordCount, first: payload.first, last: payload.last}]"/>
+            </foreach>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[sizeOf(vars.chunks)]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+</mule>

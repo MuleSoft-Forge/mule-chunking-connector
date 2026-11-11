@@ -1,0 +1,65 @@
+# ------------------------------------------------------------------------------ #
+# Java defaults (https://github.com/github/gitignore/blob/master/Java.gitignore) #
+# ------------------------------------------------------------------------------ #
+*.class
+
+# Package Files #
+*.jar
+*.war
+*.ear
+
+# ------------------------------------------------------------------------------------------- #
+# Eclipse-specific (https://github.com/github/gitignore/blob/master/Global/Eclipse.gitignore) #
+# ------------------------------------------------------------------------------------------- #
+*.pydevproject
+.metadata
+bin/**
+tmp/**
+tmp/**/*
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.project
+.classpath
+
+# External tool builders
+.externalToolBuilders/
+
+# Locally stored "Eclipse launch configurations"
+*.launch
+
+# CDT-specific
+.cproject
+
+# PDT-specific
+.buildpath
+
+# --------------- #
+# Studio-specific #
+# --------------- #
+target/
+.mule/
+.DS_Store
+velocity.log
+
+# ------------------------------------------------------------------------------ #
+# ACB defaults #
+# ------------------------------------------------------------------------------ #
+.tooling-project
+
+# ------------------------------------------------------------------------------ #
+# Generated when the project is opened in Studio or Code Builder                 #
+# ------------------------------------------------------------------------------ #
+# Exchange documentation stub
+exchange-docs/
+# DataWeave preview sample inputs
+src/test/resources/embedded-dw_*/
+
+# ------------------------------------------------------------------------------ #
+# Bundled sample data, kept although the repository ignores *.log                #
+# ------------------------------------------------------------------------------ #
+!src/main/resources/data/app.log

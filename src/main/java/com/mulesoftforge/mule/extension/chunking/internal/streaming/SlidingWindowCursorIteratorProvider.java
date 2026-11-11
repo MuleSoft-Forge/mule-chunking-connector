@@ -1,388 +1,314 @@
 package com.mulesoftforge.mule.extension.chunking.internal.streaming;
 
-import org.mule.runtime.api.streaming.exception.StreamingBufferSizeExceededException;
+import com.mulesoftforge.mule.extension.chunking.api.Chunk;
+import com.mulesoftforge.mule.extension.chunking.internal.error.ChunkReadException;
 import org.mule.runtime.api.streaming.object.CursorIterator;
 import org.mule.runtime.api.streaming.object.CursorIteratorProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import java.io.Closeable;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 
 /**
- * Custom CursorIteratorProvider that implements sliding window eviction.
+ * The sliding window: several readers read the chunks, and a chunk is let go once the readers no longer need it,
+ * with never more than {@code maxInMemoryChunks} chunks held in memory.
  *
- * <p>Tracks all open cursors and evicts chunks once ALL cursors have
- * advanced past them, keeping memory bounded.</p>
+ * <p><b>Readers.</b> A reader is a cursor that has read at least one chunk. A cursor that is opened and never read
+ * (DataWeave opens one to check the chunks' type) is not a reader and holds nothing back.</p>
  *
- * <p><b>Thread Safety:</b> Uses synchronized methods for cache operations
- * and atomic variables for state. Multiple cursors can safely operate
- * concurrently.</p>
+ * <p><b>With {@code readers} set</b>, a chunk is let go as soon as that many readers have read it, and never before.
+ * <b>With {@code readers} not set</b>, chunks are kept until {@code maxInMemoryChunks} are held; then the oldest
+ * that every reader seen so far has read is let go to make room for the next.</p>
  *
- * <p><b>Memory Model:</b></p>
+ * <p><b>Failures</b>, each raised to the reader with a message saying what to change:</p>
  * <ul>
- *   <li>Cache: NavigableMap of position → chunk</li>
- *   <li>Active cursors: ConcurrentHashMap.newKeySet()</li>
- *   <li>Eviction: Triggered on cursor advancement and closure</li>
+ *   <li>The next chunk would be one more than {@code maxInMemoryChunks}, because the chunks held are still owed to a
+ *   reader: the reader that asked for it fails.</li>
+ *   <li>A reader asks for a chunk already let go, with {@code readers} not set: it started too late.</li>
+ *   <li>A reader asks for a chunk already let go, with {@code readers} set: it is one more reader than declared.</li>
  * </ul>
  *
- * <p><b>Eviction Strategy:</b></p>
- * <ol>
- *   <li>Find minimum position across all active cursors</li>
- *   <li>Evict all chunks with position &lt; minPosition</li>
- *   <li>These chunks are no longer accessible (seek will fail)</li>
- * </ol>
- *
- * @param <T> the type of elements in the iterator (typically Chunk)
- * @since 0.2.0
+ * <p>Everything held is released when Mule releases the chunks at the end of the event that read them.</p>
  */
-public class SlidingWindowCursorIteratorProvider<T> implements CursorIteratorProvider {
+public final class SlidingWindowCursorIteratorProvider implements CursorIteratorProvider {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SlidingWindowCursorIteratorProvider.class);
 
-    private final Iterator<T> sourceIterator;
-    private final int maxCachedChunks;
-    private final NavigableMap<Long, T> cache = new TreeMap<>();
-    private final Set<SlidingWindowCursorIterator<T>> activeCursors = ConcurrentHashMap.newKeySet();
-    private final Set<SlidingWindowCursorIterator<T>> zombieCursors = ConcurrentHashMap.newKeySet();
-    private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final AtomicLong nextFetchPosition = new AtomicLong(0);
-    private volatile boolean sourceExhausted = false;
+    private final Iterator<Chunk> source;
+    private final int maxInMemoryChunks;
+    private final Integer readers;
+
+    /** The chunks held, by position, from {@code first} to {@code first + window.size() - 1}. */
+    private final Map<Long, Chunk> window = new HashMap<>();
+    private long first = 0;
+    private boolean sourceEnded = false;
+    private final List<Cursor> readersSeen = new ArrayList<>();
+    private int peak = 0;
+    private boolean closed = false;
+    private boolean released = false;
+    private final HeldChunks held = HeldChunks.current();
 
     /**
-     * Creates a new sliding window cursor provider.
-     *
-     * @param sourceIterator the source iterator to read from
-     * @param maxCachedChunks maximum chunks to keep cached (soft limit)
+     * @param source the chunks, read when a reader first needs each one
+     * @param maxInMemoryChunks the most chunks held in memory, positive
+     * @param readers how many readers will read the chunks, positive; {@code null} when not set
      */
-    public SlidingWindowCursorIteratorProvider(Iterator<T> sourceIterator, int maxCachedChunks) {
-        this.sourceIterator = sourceIterator;
-        this.maxCachedChunks = maxCachedChunks;
+    public SlidingWindowCursorIteratorProvider(Iterator<Chunk> source, int maxInMemoryChunks, Integer readers) {
+        this.source = source;
+        this.maxInMemoryChunks = maxInMemoryChunks;
+        this.readers = readers;
+        held.open();
     }
 
     @Override
-    public CursorIterator openCursor() {
-        if (closed.get()) {
-            throw new IllegalStateException("Cannot open cursor on closed provider");
+    public synchronized CursorIterator<Chunk> openCursor() {
+        if (closed) {
+            throw new IllegalStateException("Cannot open a cursor on a closed provider");
         }
-        SlidingWindowCursorIterator<T> cursor = new SlidingWindowCursorIterator<>(this);
-        activeCursors.add(cursor);
+        held.cursor();
+        return new Cursor(this);
+    }
 
-        // WORKAROUND: Detect DataWeave type-checking cursor leak
-        boolean isZombie = isDataWeaveTypeCheckingCursor();
-        if (isZombie) {
-            zombieCursors.add(cursor);
+    @Override
+    public synchronized void close() {
+        closed = true; // no new cursors; cursors already open keep reading until releaseResources()
+    }
+
+    @Override
+    public synchronized void releaseResources() {
+        closed = true;
+        if (released) {
+            return;
         }
-
-        // Log cursor creation with stack trace to understand who's opening cursors
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("Opened cursor #{}, total active cursors: {}, zombie: {}",
-                System.identityHashCode(cursor), activeCursors.size(), isZombie);
-            if (LOGGER.isTraceEnabled()) {
-                LOGGER.trace("Cursor opened from:", new Exception("Stack trace"));
+        released = true;
+        LOGGER.debug("sliding-window: released {} chunks at the end of the event; at most {} were held, {} readers",
+                     window.size(), peak, readersSeen.size());
+        held.remove(window.size());
+        held.release();
+        window.clear();
+        readersSeen.clear();
+        if (source instanceof Closeable) {
+            try {
+                ((Closeable) source).close();
+            } catch (IOException e) {
+                LOGGER.warn("sliding-window: could not close the content: {}", e.getMessage());
             }
         }
-
-        return cursor;
     }
 
     @Override
-    public void close() {
-        closed.set(true);
+    public synchronized boolean isClosed() {
+        return closed;
     }
 
-    @Override
-    public void releaseResources() {
-        synchronized (cache) {
-            cache.clear();
+    /** @return the chunks held in memory now */
+    synchronized int held() {
+        return window.size();
+    }
+
+    private synchronized boolean hasChunkAt(Cursor cursor, long position) {
+        if (released) {
+            throw new ChunkReadException("sliding-window: the chunks were released when the event that read them "
+                + "ended, so they cannot be read any more.");
         }
-        activeCursors.clear();
-    }
-
-    @Override
-    public boolean isClosed() {
-        return closed.get();
-    }
-
-    // Package-private methods for cursor interaction
-
-    /**
-     * Gets the chunk at the specified position.
-     * If not cached, fetches forward from source until position is reached.
-     *
-     * @param position the position to retrieve
-     * @return the chunk at that position, or null if position is beyond EOF
-     */
-    synchronized T getChunkAt(long position) {
-        // Return from cache if available
-        if (cache.containsKey(position)) {
-            LOGGER.trace("Cache hit: position={}", position);
-            return cache.get(position);
+        if (position < first) {
+            throw letGo(cursor, position);
         }
-
-        LOGGER.debug("Cache miss: position={}, fetching from source (current cache size: {})",
-            position, cache.size());
-
-        // Fetch forward until we have the requested position
-        int fetchedCount = 0;
-        while (nextFetchPosition.get() <= position && !sourceExhausted) {
-            // CRITICAL: Check if we need to make room BEFORE fetching
-            if (cache.size() >= maxCachedChunks) {
-                // Try to evict before fetching
-                evictBeforeFetch();
-
-                // If still at limit after eviction, throw error
-                if (cache.size() >= maxCachedChunks) {
-                    String positions = activeCursors.stream()
-                        .map(c -> String.valueOf(c.getPosition()))
-                        .collect(java.util.stream.Collectors.joining(", "));
-
-                    String errorMsg = String.format(
-                        "Sliding-window cache exceeded maximum size. " +
-                        "Cache size: %d, maxCachedChunks: %d, active cursors: %d. " +
-                        "Cursor positions: [%s]. " +
-                        "Increase maxCachedChunks or use a different streaming strategy.",
-                        cache.size(), maxCachedChunks, activeCursors.size(), positions
-                    );
-
-                    LOGGER.error(errorMsg);
-                    throw new StreamingBufferSizeExceededException(maxCachedChunks);
-                }
-            }
-
-            if (sourceIterator.hasNext()) {
-                T chunk = sourceIterator.next();
-                long fetchPos = nextFetchPosition.getAndIncrement();
-                cache.put(fetchPos, chunk);
-                fetchedCount++;
-                LOGGER.trace("Fetched chunk at position {}, cache size now: {}", fetchPos, cache.size());
+        while (position >= first + window.size() && !sourceEnded) {
+            if (source.hasNext()) {
+                long next = first + window.size();
+                makeRoomFor(next);
+                window.put(next, source.next());
+                held.add(1);
+                peak = Math.max(peak, window.size());
             } else {
-                sourceExhausted = true;
-                LOGGER.debug("Source exhausted after fetching {} chunks", fetchedCount);
+                sourceEnded = true;
             }
         }
-
-        if (fetchedCount > 0) {
-            LOGGER.debug("Fetched {} chunks, cache size: {}", fetchedCount, cache.size());
-        }
-
-        return cache.get(position);
+        return position < first + window.size();
     }
 
-    /**
-     * Checks if a chunk exists at the specified position.
-     * May trigger fetching from source if not yet cached.
-     *
-     * @param position the position to check
-     * @return true if a chunk exists at that position
-     */
-    synchronized boolean hasChunkAt(long position) {
-        if (cache.containsKey(position)) {
-            return true;
+    private synchronized Chunk next(Cursor cursor) {
+        if (!hasChunkAt(cursor, cursor.position)) {
+            throw new NoSuchElementException("No more chunks");
         }
-        if (sourceExhausted && position >= nextFetchPosition.get()) {
-            return false;
+        Chunk chunk = window.get(cursor.position);
+        cursor.position++;
+        cursor.passed = Math.max(cursor.passed, cursor.position);
+        if (!cursor.reader) {
+            cursor.reader = true;
+            readersSeen.add(cursor);
+            held.reader();
         }
-        // Try to fetch up to position
-        getChunkAt(position);
-        return cache.containsKey(position);
+        if (readers != null) {
+            letGoWhatEnoughReadersHaveRead();
+        }
+        return chunk;
     }
 
-    /**
-     * Called when a cursor advances. Triggers eviction check.
-     *
-     * @param cursor the cursor that advanced
-     */
-    void cursorAdvanced(SlidingWindowCursorIterator<T> cursor) {
-        evictIfPossible();
-    }
-
-    /**
-     * Called when a cursor closes. Removes from active set and triggers eviction.
-     *
-     * @param cursor the cursor that closed
-     */
-    void cursorClosed(SlidingWindowCursorIterator<T> cursor) {
-        activeCursors.remove(cursor);
-        evictIfPossible();
-
-        // If last cursor closed and provider is closed, release resources
-        if (activeCursors.isEmpty() && closed.get()) {
-            releaseResources();
+    private synchronized void cursorReleased(Cursor cursor) {
+        if (cursor.reader && !released) {
+            cursor.passed = Long.MAX_VALUE; // it will read no more, so it no longer holds anything back
+            if (readers != null) {
+                letGoWhatEnoughReadersHaveRead();
+            }
         }
     }
 
-    /**
-     * Evicts chunks before fetch to make room in cache.
-     * Called from getChunkAt when cache is at capacity.
-     */
-    private void evictBeforeFetch() {
-        if (activeCursors.isEmpty()) {
-            LOGGER.trace("Eviction skipped: no active cursors");
+    /** With {@code readers} set: lets go of every chunk that that many readers have read. */
+    private void letGoWhatEnoughReadersHaveRead() {
+        if (readersSeen.size() < readers) {
             return;
         }
-
-        int beforeSize = cache.size();
-
-        // WORKAROUND: Exclude DataWeave zombie cursors from eviction calculation
-        // These cursors remain at position 0 and are never released due to DataWeave bug
-        long minPosition = activeCursors.stream()
-            .filter(c -> !zombieCursors.contains(c))  // Exclude zombie cursors
-            .mapToLong(SlidingWindowCursorIterator::getPosition)
-            .min()
-            .orElse(0);
-
-        // Log cursor positions for debugging
-        if (LOGGER.isDebugEnabled()) {
-            String allPositions = activeCursors.stream()
-                .map(c -> String.format("%d%s", c.getPosition(),
-                    zombieCursors.contains(c) ? "(zombie)" : ""))
-                .collect(java.util.stream.Collectors.joining(", "));
-            LOGGER.debug("Eviction before fetch: cursor positions: [{}], minPosition={} (zombies excluded), cacheSize={}",
-                allPositions, minPosition, cache.size());
-        }
-
-        // Evict all chunks before minPosition
-        // Using headMap(minPosition, false) = all entries with key < minPosition
-        NavigableMap<Long, T> toEvict = cache.headMap(minPosition, false);
-        int evictCount = toEvict.size();
-
-        if (!toEvict.isEmpty()) {
-            toEvict.clear();
-            LOGGER.debug("Evicted {} chunks before fetch, cacheSize: {} -> {}",
-                evictCount, beforeSize, cache.size());
+        long[] passed = readersSeen.stream().mapToLong(c -> c.passed).sorted().toArray();
+        long readByEnough = passed[passed.length - readers]; // every chunk before this has been read by enough readers
+        while (first < readByEnough && !window.isEmpty()) {
+            letGoOldest();
         }
     }
 
-    /**
-     * Evicts chunks that all cursors have advanced past.
-     * This is the core of the sliding window mechanism.
-     * Called after cursor advancement.
-     */
-    private synchronized void evictIfPossible() {
-        if (activeCursors.isEmpty()) {
-            LOGGER.trace("Eviction skipped: no active cursors");
+    /** Before holding the chunk at {@code position}: makes room for it, or fails if the window is full. */
+    private void makeRoomFor(long position) {
+        if (readers != null) {
+            letGoWhatEnoughReadersHaveRead();
+        }
+        if (window.size() < maxInMemoryChunks) {
             return;
         }
+        if (readers == null && !readersSeen.isEmpty() && first < leastPassed()) {
+            letGoOldest();
+            return;
+        }
+        throw overLimit(position);
+    }
 
-        int beforeSize = cache.size();
+    private long leastPassed() {
+        return readersSeen.stream().mapToLong(c -> c.passed).min().orElse(0);
+    }
 
-        // WORKAROUND: Exclude DataWeave zombie cursors from eviction calculation
-        // These cursors remain at position 0 and are never released due to DataWeave bug
-        long minPosition = activeCursors.stream()
-            .filter(c -> !zombieCursors.contains(c))  // Exclude zombie cursors
-            .mapToLong(SlidingWindowCursorIterator::getPosition)
-            .min()
-            .orElse(0);
+    private void letGoOldest() {
+        window.remove(first);
+        first++;
+        held.remove(1);
+    }
 
-        // Evict all chunks before minPosition
-        // Using headMap(minPosition, false) = all entries with key < minPosition
-        synchronized (cache) {
-            NavigableMap<Long, T> toEvict = cache.headMap(minPosition, false);
-            int evictCount = toEvict.size();
+    private ChunkReadException overLimit(long position) {
+        int started = readersSeen.size();
+        String declared = readers != null
+            ? "readers is " + readers + ", " + started + (started == 1 ? " has" : " have") + " started reading"
+            : "readers is not set";
+        return new ChunkReadException("sliding-window: reading chunk " + position + " would hold more than "
+            + "maxInMemoryChunks (" + maxInMemoryChunks + ") chunks in memory, because chunks " + first + " to "
+            + (position - 1) + " are still owed to a reader that has not read them (" + declared + "; the readers' "
+            + "next chunks: " + positions() + "). Raise maxInMemoryChunks, or use file-store, which keeps chunks "
+            + "beyond the limit on disk.");
+    }
 
-            if (!toEvict.isEmpty()) {
-                toEvict.clear();
-                LOGGER.debug("Eviction after advance: minPosition={} (zombies excluded), evicted={} chunks, cacheSize: {} -> {}",
-                    minPosition, evictCount, beforeSize, cache.size());
+    private ChunkReadException letGo(Cursor cursor, long position) {
+        if (readers == null) {
+            return new ChunkReadException("sliding-window: chunk " + position + " is no longer held. readers is not "
+                + "set, so once maxInMemoryChunks (" + maxInMemoryChunks + ") chunks were held the oldest that every "
+                + "reader seen so far had read were let go, and this reader started too late to read them. Set "
+                + "readers to the number of readers of these chunks (each foreach, scatter-gather route or "
+                + "expression that reads them), so that no chunk is let go before all of them have read it.");
+        }
+        return new ChunkReadException("sliding-window: chunk " + position + " was already let go, because readers "
+            + "is " + readers + " and " + readers + (readers == 1 ? " reader has" : " readers have") + " read it. "
+            + "This read is one more than readers allows. Set readers to the number of readers of these chunks "
+            + "(each foreach, scatter-gather route or expression that reads them, counting each time it reads "
+            + "them), or use in-memory or file-store to read them any number of times.");
+    }
+
+    private String positions() {
+        long[] next = readersSeen.stream().mapToLong(c -> c.position).toArray();
+        return next.length == 0 ? "none" : Arrays.toString(next);
+    }
+
+    /** One reader's place in the chunks. All state is guarded by the provider's lock. */
+    private static final class Cursor implements CursorIterator<Chunk> {
+        private final SlidingWindowCursorIteratorProvider provider;
+        private long position = 0;
+        /** One past the furthest chunk this cursor has read: it has passed every chunk before this. */
+        private long passed = 0;
+        private boolean reader = false;
+        private boolean released = false;
+
+        Cursor(SlidingWindowCursorIteratorProvider provider) {
+            this.provider = provider;
+        }
+
+        @Override
+        public boolean hasNext() {
+            synchronized (provider) {
+                return !released && provider.hasChunkAt(this, position);
             }
         }
-    }
 
-    /**
-     * Returns the minimum cached position (earliest chunk still in cache).
-     * Used by cursors to check if seek target is available.
-     *
-     * @return the minimum cached position, or nextFetchPosition if cache is empty
-     */
-    long getMinCachedPosition() {
-        synchronized (cache) {
-            if (cache.isEmpty()) {
-                return nextFetchPosition.get();
-            }
-            return cache.firstKey();
-        }
-    }
-
-    /**
-     * Returns the size of the dataset, if known.
-     * Since we're streaming, we don't know the size until exhausted.
-     *
-     * @return -1 (unknown size)
-     */
-    int getSize() {
-        return -1; // Unknown size
-    }
-
-    /**
-     * WORKAROUND FOR MULE/DATAWEAVE BUG: Detect DataWeave type-checking cursor leak.
-     *
-     * <p><b>Bug Description:</b> DataWeave's {@code ArrayType.accepts()} opens a cursor
-     * to validate that a CursorIteratorProvider is iterable, but never releases it.
-     * This creates "zombie cursors" that remain at position 0 indefinitely.</p>
-     *
-     * <p><b>Impact:</b> Zombie cursors block sliding-window eviction because
-     * minPosition calculation includes them, preventing any chunks from being evicted.</p>
-     *
-     * <p><b>Stack Trace Pattern:</b></p>
-     * <pre>
-     * at org.mule.weave.v2.model.types.ArrayType$.accepts(Type.scala:667)
-     * at org.mule.weave.v2.el.WeaveExpressionLanguageSession.splitInArraySeq(...)
-     * at org.mule.runtime.core.internal.routing.Foreach.splitRequest(...)
-     * </pre>
-     *
-     * <p><b>Detection Strategy:</b> Check if cursor was opened from ArrayType.accepts()
-     * by examining the current thread's stack trace at cursor creation time.</p>
-     *
-     * <p><b>This is a temporary workaround.</b> The proper fix is for DataWeave to
-     * release cursors after type checking, either via try-with-resources or by using
-     * a different validation mechanism that doesn't open cursors.</p>
-     *
-     * <p><b>Reported to MuleSoft:</b> Mule 4.10.2 / DataWeave 2.10.2</p>
-     *
-     * <p><b>Evidence:</b> In scatter-gather with 2 foreach loops, 4 cursors are created:
-     * <ul>
-     *   <li>2 zombie cursors from ArrayType.accepts() - never advance, never released</li>
-     *   <li>2 normal cursors for iteration - advance normally, released at end</li>
-     * </ul>
-     * Zombie cursors remain at position 0, blocking eviction with minPosition=0.</p>
-     *
-     * @return true if the current call stack indicates DataWeave type-checking
-     * @since 0.2.0.5
-     */
-    private boolean isDataWeaveTypeCheckingCursor() {
-        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-
-        // Look for the specific DataWeave ArrayType.accepts() pattern
-        // This method opens cursors for type validation but never closes them
-        for (int i = 0; i < Math.min(stack.length, 25); i++) {
-            StackTraceElement ste = stack[i];
-            String className = ste.getClassName();
-            String methodName = ste.getMethodName();
-
-            // DataWeave's ArrayType validation opens cursors but never closes them
-            // Bug present in: org.mule.weave.core@2.10.2/org.mule.weave.v2.model.types.ArrayType$
-            if (className != null && methodName != null &&
-                className.contains("org.mule.weave.v2.model.types.ArrayType") &&
-                methodName.equals("accepts")) {
-
-                if (LOGGER.isWarnEnabled()) {
-                    LOGGER.warn("╔═══════════════════════════════════════════════════════════════════════════╗");
-                    LOGGER.warn("║ DATAWEAVE BUG DETECTED - CURSOR LEAK WORKAROUND ACTIVATED                ║");
-                    LOGGER.warn("╠═══════════════════════════════════════════════════════════════════════════╣");
-                    LOGGER.warn("║ Bug: ArrayType.accepts() opens cursor but never releases it              ║");
-                    LOGGER.warn("║ Location: org.mule.weave.v2.model.types.ArrayType.accepts()              ║");
-                    LOGGER.warn("║ Affected: Mule 4.10.2 / DataWeave 2.10.2                                 ║");
-                    LOGGER.warn("║ Impact: Creates zombie cursors at position 0 that block eviction         ║");
-                    LOGGER.warn("║ Workaround: This cursor will be excluded from eviction calculation       ║");
-                    LOGGER.warn("║ Proper fix: DataWeave should use try-with-resources for type checking    ║");
-                    LOGGER.warn("╚═══════════════════════════════════════════════════════════════════════════╝");
+        @Override
+        public Chunk next() {
+            synchronized (provider) {
+                if (released) {
+                    throw new NoSuchElementException("Cursor has been released");
                 }
-                return true;
+                return provider.next(this);
             }
         }
-        return false;
+
+        @Override
+        public long getPosition() {
+            synchronized (provider) {
+                return position;
+            }
+        }
+
+        @Override
+        public void seek(long newPosition) throws IOException {
+            if (newPosition < 0) {
+                throw new IOException("Cannot seek to negative position " + newPosition);
+            }
+            synchronized (provider) {
+                position = newPosition; // a chunk already let go fails, with its reason, when it is read
+            }
+        }
+
+        @Override
+        public void release() {
+            synchronized (provider) {
+                if (!released) {
+                    released = true;
+                    provider.cursorReleased(this);
+                }
+            }
+        }
+
+        @Override
+        public boolean isReleased() {
+            synchronized (provider) {
+                return released;
+            }
+        }
+
+        @Override
+        public CursorIteratorProvider getProvider() {
+            return provider;
+        }
+
+        @Override
+        public void close() {
+            release();
+        }
+
+        @Override
+        public int getSize() {
+            return -1;
+        }
     }
 }

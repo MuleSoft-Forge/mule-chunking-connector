@@ -1,0 +1,343 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The sliding window's readers. Every flow is started by an HTTP listener, so that its routes run as they do in an
+     application (a scatter-gather written in a test runs its routes one after another) and Mule releases the chunks at
+     the end of the event. Each test reports the chunks held through Held, read after the event has ended. -->
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <munit:config name="sliding-window-test"/>
+
+    <http:listener-config name="sliding-window-listener"><http:listener-connection host="localhost" port="8096"/></http:listener-config>
+    <http:request-config name="sliding-window-client"><http:request-connection host="localhost" port="8096"/></http:request-config>
+
+    <!-- Content of n chunks of 10 bytes each, chunk i holding its own number. -->
+    <sub-flow name="sw-content">
+        <set-payload value="#[((0 to (attributes.queryParams.chunks as Number) - 1) map (('000000000' ++ $) [-10 to -1])) joinBy '']"/>
+    </sub-flow>
+
+    <sub-flow name="sw-reply">
+        <set-payload value="#[output application/json --- {r0: payload['0'].payload, r1: payload['1'].payload}]"/>
+    </sub-flow>
+
+    <!-- readers set -->
+
+    <flow name="sw-scatter-gather-readers-set">
+        <http:listener config-ref="sliding-window-listener" path="/scatter-gather-readers-set"/>
+        <flow-ref name="sw-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="3" readers="2"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[[]]"/>
+        <scatter-gather>
+            <route>
+                <foreach><set-variable variableName="seen" value="#[dw::Runtime::wait(vars.seen + payload.index, 2)]"/></foreach>
+                <set-payload value="#[vars.seen]"/>
+            </route>
+            <route>
+                <foreach><set-variable variableName="seen" value="#[dw::Runtime::wait(vars.seen + payload.index, 2)]"/></foreach>
+                <set-payload value="#[vars.seen]"/>
+            </route>
+        </scatter-gather>
+        <flow-ref name="sw-reply"/>
+    </flow>
+
+    <flow name="sw-late-route-readers-set">
+        <http:listener config-ref="sliding-window-listener" path="/late-route-readers-set"/>
+        <flow-ref name="sw-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="10" readers="2"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[[]]"/>
+        <scatter-gather>
+            <route>
+                <foreach><set-variable variableName="seen" value="#[dw::Runtime::wait(vars.seen + payload.index, 20)]"/></foreach>
+                <set-payload value="#[vars.seen]"/>
+            </route>
+            <route>
+                <set-variable variableName="late" value="#[dw::Runtime::wait(true, 100)]"/>
+                <foreach><set-variable variableName="seen" value="#[dw::Runtime::wait(vars.seen + payload.index, 20)]"/></foreach>
+                <set-payload value="#[vars.seen]"/>
+            </route>
+        </scatter-gather>
+        <flow-ref name="sw-reply"/>
+    </flow>
+
+    <flow name="sw-owed-beyond-limit-readers-set">
+        <http:listener config-ref="sliding-window-listener" path="/owed-beyond-limit-readers-set"/>
+        <flow-ref name="sw-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="3" readers="2"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[[]]"/>
+        <foreach><set-variable variableName="seen" value="#[vars.seen + payload.index]"/></foreach>
+        <set-payload value="#[output application/json --- {seen: vars.seen}]"/>
+        <error-handler>
+            <on-error-continue type="ANY">
+                <set-payload value="#[output application/json --- {seen: vars.seen, error: error.description}]"/>
+            </on-error-continue>
+        </error-handler>
+    </flow>
+
+    <flow name="sw-reader-beyond-count-readers-set">
+        <http:listener config-ref="sliding-window-listener" path="/reader-beyond-count-readers-set"/>
+        <flow-ref name="sw-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="3" readers="1"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="first" value="#[[]]"/>
+        <set-variable variableName="second" value="#[[]]"/>
+        <foreach><set-variable variableName="first" value="#[vars.first + payload.index]"/></foreach>
+        <foreach><set-variable variableName="second" value="#[vars.second + payload.index]"/></foreach>
+        <set-payload value="#[output application/json --- {first: vars.first, second: vars.second}]"/>
+        <error-handler>
+            <on-error-continue type="ANY">
+                <set-payload value="#[output application/json --- {first: vars.first, second: vars.second, error: error.description}]"/>
+            </on-error-continue>
+        </error-handler>
+    </flow>
+
+    <!-- readers not set -->
+
+    <flow name="sw-single-loop">
+        <http:listener config-ref="sliding-window-listener" path="/single-loop"/>
+        <flow-ref name="sw-content"/>
+        <set-variable variableName="readers" value="#[attributes.queryParams.readers]"/>
+        <choice>
+            <when expression="#[vars.readers == '1']">
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+                    <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="3" readers="1"/></chunking:streaming-strategy>
+                </chunking:read-chunked>
+            </when>
+            <otherwise>
+                <chunking:read-chunked>
+                    <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+                    <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="3"/></chunking:streaming-strategy>
+                </chunking:read-chunked>
+            </otherwise>
+        </choice>
+        <set-variable variableName="seen" value="#[[]]"/>
+        <foreach><set-variable variableName="seen" value="#[vars.seen + payload.index]"/></foreach>
+        <set-payload value="#[output application/json --- {seen: vars.seen}]"/>
+    </flow>
+
+    <flow name="sw-second-reader-within-window">
+        <http:listener config-ref="sliding-window-listener" path="/second-reader-within-window"/>
+        <flow-ref name="sw-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="10"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[[]]"/>
+        <scatter-gather>
+            <route>
+                <foreach><set-variable variableName="seen" value="#[dw::Runtime::wait(vars.seen + payload.index, 20)]"/></foreach>
+                <set-payload value="#[vars.seen]"/>
+            </route>
+            <route>
+                <set-variable variableName="late" value="#[dw::Runtime::wait(true, 100)]"/>
+                <foreach><set-variable variableName="seen" value="#[dw::Runtime::wait(vars.seen + payload.index, 20)]"/></foreach>
+                <set-payload value="#[vars.seen]"/>
+            </route>
+        </scatter-gather>
+        <flow-ref name="sw-reply"/>
+    </flow>
+
+    <flow name="sw-second-reader-beyond-window">
+        <http:listener config-ref="sliding-window-listener" path="/second-reader-beyond-window"/>
+        <flow-ref name="sw-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="3"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[[]]"/>
+        <scatter-gather>
+            <route>
+                <foreach><set-variable variableName="seen" value="#[vars.seen + payload.index]"/></foreach>
+                <set-payload value="#[vars.seen]"/>
+            </route>
+            <route>
+                <set-variable variableName="late" value="#[dw::Runtime::wait(true, 300)]"/>
+                <try>
+                    <foreach><set-variable variableName="seen" value="#[vars.seen + payload.index]"/></foreach>
+                    <set-payload value="#[vars.seen]"/>
+                    <error-handler>
+                        <on-error-continue type="ANY"><set-payload value="#[{seen: vars.seen, error: error.description}]"/></on-error-continue>
+                    </error-handler>
+                </try>
+            </route>
+        </scatter-gather>
+        <flow-ref name="sw-reply"/>
+    </flow>
+
+    <flow name="sw-loop-after-loop">
+        <http:listener config-ref="sliding-window-listener" path="/loop-after-loop"/>
+        <flow-ref name="sw-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="10"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="first" value="#[[]]"/>
+        <set-variable variableName="second" value="#[[]]"/>
+        <foreach><set-variable variableName="first" value="#[vars.first + payload.index]"/></foreach>
+        <foreach><set-variable variableName="second" value="#[vars.second + payload.index]"/></foreach>
+        <set-payload value="#[output application/json --- {first: vars.first, second: vars.second}]"/>
+    </flow>
+
+    <!-- Tests -->
+
+    <munit:test name="sliding-window-scatter-gather-with-readers-set-reads-every-chunk-within-the-limit-test"
+                description="readers set: two loops in a scatter-gather over 200 chunks, limit 3, both read every chunk and no more than 3 are held">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-scatter-gather-readers-set"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="sliding-window-client" method="GET" path="/scatter-gather-readers-set"><http:query-params>#[{chunks: '200'}]</http:query-params></http:request>
+            <set-variable variableName="held" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.r0]" is="#[MunitTools::equalTo((0 to 199) as Array)]"/>
+            <munit-tools:assert-that expression="#[payload.r1]" is="#[MunitTools::equalTo((0 to 199) as Array)]"/>
+            <munit-tools:assert-that expression="#[vars.held.peak]" is="#[MunitTools::lessThanOrEqualTo(3)]"/>
+            <munit-tools:assert-that expression="#[vars.held.readers]" is="#[MunitTools::equalTo(2)]"/>
+            <munit-tools:assert-that expression="#[vars.held.inMemory]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.held.unreleased]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-route-that-starts-late-with-readers-set-reads-every-chunk-test"
+                description="readers set: a route that starts 100 ms after the other still reads every chunk">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-late-route-readers-set"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="sliding-window-client" method="GET" path="/late-route-readers-set"><http:query-params>#[{chunks: '30'}]</http:query-params></http:request>
+            <set-variable variableName="held" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.r0]" is="#[MunitTools::equalTo((0 to 29) as Array)]"/>
+            <munit-tools:assert-that expression="#[payload.r1]" is="#[MunitTools::equalTo((0 to 29) as Array)]"/>
+            <munit-tools:assert-that expression="#[vars.held.peak]" is="#[MunitTools::lessThanOrEqualTo(10)]"/>
+            <munit-tools:assert-that expression="#[vars.held.inMemory]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-chunks-owed-beyond-the-limit-with-readers-set-fail-naming-the-limit-test"
+                description="readers set to 2 but one reader: the chunks owed to the other exceed the limit and the read fails with the limit's message">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-owed-beyond-limit-readers-set"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="sliding-window-client" method="GET" path="/owed-beyond-limit-readers-set"><http:query-params>#[{chunks: '10'}]</http:query-params></http:request>
+            <set-variable variableName="held" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.seen]" is="#[MunitTools::equalTo([0, 1, 2])]"/>
+            <munit-tools:assert-that expression="#[payload.error]" is="#[MunitTools::containsString('would hold more than maxInMemoryChunks (3) chunks in memory')]"/>
+            <munit-tools:assert-that expression="#[payload.error]" is="#[MunitTools::containsString('readers is 2, 1 has started reading')]"/>
+            <munit-tools:assert-that expression="#[payload.error]" is="#[MunitTools::containsString('Raise maxInMemoryChunks, or use file-store')]"/>
+            <munit-tools:assert-that expression="#[vars.held.peak]" is="#[MunitTools::equalTo(3)]"/>
+            <munit-tools:assert-that expression="#[vars.held.inMemory]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-reader-beyond-the-count-with-readers-set-fails-saying-so-test"
+                description="readers set to 1: a second loop is one reader too many and fails with a message saying so">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-reader-beyond-count-readers-set"/></munit:enable-flow-sources>
+        <munit:execution>
+            <http:request config-ref="sliding-window-client" method="GET" path="/reader-beyond-count-readers-set"><http:query-params>#[{chunks: '10'}]</http:query-params></http:request>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.first]" is="#[MunitTools::equalTo((0 to 9) as Array)]"/>
+            <munit-tools:assert-that expression="#[payload.second]" is="#[MunitTools::equalTo([])]"/>
+            <munit-tools:assert-that expression="#[payload.error]" is="#[MunitTools::containsString('This read is one more than readers allows')]"/>
+            <munit-tools:assert-that expression="#[payload.error]" is="#[MunitTools::containsString('Set readers to the number of readers')]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-single-loop-with-readers-not-set-stays-within-the-limit-test"
+                description="readers not set: one loop over 200 chunks, limit 3, holds no more than 3; DataWeave's type-check cursor is opened and holds nothing back">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-single-loop"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="sliding-window-client" method="GET" path="/single-loop"><http:query-params>#[{chunks: '200'}]</http:query-params></http:request>
+            <set-variable variableName="held" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.seen]" is="#[MunitTools::equalTo((0 to 199) as Array)]"/>
+            <munit-tools:assert-that expression="#[vars.held.peak]" is="#[MunitTools::lessThanOrEqualTo(3)]"/>
+            <munit-tools:assert-that expression="#[vars.held.cursorsOpened]" is="#[MunitTools::greaterThan(vars.held.readers)]"/>
+            <munit-tools:assert-that expression="#[vars.held.readers]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.held.inMemory]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-single-loop-with-readers-set-to-one-holds-one-chunk-test"
+                description="readers 1: one loop over 200 chunks holds one chunk at a time; DataWeave's type-check cursor is opened and holds nothing back">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-single-loop"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="sliding-window-client" method="GET" path="/single-loop"><http:query-params>#[{chunks: '200', readers: '1'}]</http:query-params></http:request>
+            <set-variable variableName="held" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.seen]" is="#[MunitTools::equalTo((0 to 199) as Array)]"/>
+            <munit-tools:assert-that expression="#[vars.held.peak]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.held.cursorsOpened]" is="#[MunitTools::greaterThan(vars.held.readers)]"/>
+            <munit-tools:assert-that expression="#[vars.held.readers]" is="#[MunitTools::equalTo(1)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-second-reader-within-the-window-with-readers-not-set-reads-its-chunks-test"
+                description="readers not set: a route that starts 100 ms late, within the window, reads every chunk">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-second-reader-within-window"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="sliding-window-client" method="GET" path="/second-reader-within-window"><http:query-params>#[{chunks: '30'}]</http:query-params></http:request>
+            <set-variable variableName="held" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.r0]" is="#[MunitTools::equalTo((0 to 29) as Array)]"/>
+            <munit-tools:assert-that expression="#[payload.r1]" is="#[MunitTools::equalTo((0 to 29) as Array)]"/>
+            <munit-tools:assert-that expression="#[vars.held.peak]" is="#[MunitTools::lessThanOrEqualTo(10)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-second-reader-beyond-the-window-with-readers-not-set-fails-saying-to-set-readers-test"
+                description="readers not set: a route that starts after the other has read 30 chunks under a limit of 3 fails with the message to set readers">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-second-reader-beyond-window"/></munit:enable-flow-sources>
+        <munit:execution>
+            <http:request config-ref="sliding-window-client" method="GET" path="/second-reader-beyond-window"><http:query-params>#[{chunks: '30'}]</http:query-params></http:request>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.r0]" is="#[MunitTools::equalTo((0 to 29) as Array)]"/>
+            <munit-tools:assert-that expression="#[payload.r1.seen]" is="#[MunitTools::equalTo([])]"/>
+            <munit-tools:assert-that expression="#[payload.r1.error]" is="#[MunitTools::containsString('readers is not set')]"/>
+            <munit-tools:assert-that expression="#[payload.r1.error]" is="#[MunitTools::containsString('Set readers to the number of readers')]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="sliding-window-loop-after-loop-within-the-limit-reads-everything-twice-test"
+                description="readers not set: a loop after a loop over 5 chunks under a limit of 10 reads every chunk twice">
+        <munit:enable-flow-sources><munit:enable-flow-source value="sw-loop-after-loop"/></munit:enable-flow-sources>
+        <munit:execution>
+            <http:request config-ref="sliding-window-client" method="GET" path="/loop-after-loop"><http:query-params>#[{chunks: '5'}]</http:query-params></http:request>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.first]" is="#[MunitTools::equalTo((0 to 4) as Array)]"/>
+            <munit-tools:assert-that expression="#[payload.second]" is="#[MunitTools::equalTo((0 to 4) as Array)]"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

@@ -13,7 +13,10 @@ public class ChunkingErrorTypeProvider implements ErrorTypeProvider {
     public Set<ErrorTypeDefinition> getErrorTypes() {
         Set<ErrorTypeDefinition> errors = new HashSet<>();
         errors.add(ChunkingError.READ_ERROR);
+        errors.add(ChunkingError.INVALID_PARAMETER);
         errors.add(ChunkingError.INVALID_CHUNK_SIZE);
+        errors.add(ChunkingError.INVALID_RECORDS_PER_CHUNK);
+        errors.add(ChunkingError.INVALID_DELIMITER);
         return errors;
     }
 }

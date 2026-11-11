@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What the streaming strategies hold is released when the event that read the chunks ends. Every flow here is started
+     by a real message source (an HTTP listener, or a scheduler), because Mule releases the chunks only for events that a
+     source started; a flow a test runs by flow-ref is never released. Held reports what is held and how each read was
+     freed: "unreleased" counts reads not yet released, "collected" reads freed only when the JVM collected them. -->
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:chunking="http://www.mulesoft.org/schema/mule/chunking"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/chunking http://www.mulesoft.org/schema/mule/chunking/current/mule-chunking.xsd">
+
+    <munit:config name="release-test"/>
+
+    <http:listener-config name="release-listener"><http:listener-connection host="localhost" port="8097"/></http:listener-config>
+    <http:request-config name="release-client"><http:request-connection host="localhost" port="8097"/></http:request-config>
+
+    <!-- 20 chunks of 10 bytes each, chunk i holding its own number. -->
+    <sub-flow name="release-content">
+        <set-payload value="#[((0 to 19) map (('000000000' ++ $) [-10 to -1])) joinBy '']"/>
+    </sub-flow>
+
+    <flow name="release-in-memory">
+        <http:listener config-ref="release-listener" path="/in-memory"/>
+        <flow-ref name="release-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:in-memory maxInMemoryChunks="20"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[0]"/>
+        <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+        <set-payload value="#[output application/json --- {seen: vars.seen, held: java!com::mulesoftforge::mule::extension::chunking::test::Held::now()}]"/>
+    </flow>
+
+    <flow name="release-sliding-window">
+        <http:listener config-ref="release-listener" path="/sliding-window"/>
+        <flow-ref name="release-content"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="5"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[0]"/>
+        <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+        <set-payload value="#[output application/json --- {seen: vars.seen, held: java!com::mulesoftforge::mule::extension::chunking::test::Held::now()}]"/>
+    </flow>
+
+    <flow name="release-file-store">
+        <http:listener config-ref="release-listener" path="/file-store"/>
+        <flow-ref name="release-content"/>
+        <set-variable variableName="filesBefore" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::names()]"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:file-store maxInMemoryChunks="2"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[0]"/>
+        <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+        <set-payload value="#[output application/json --- {seen: vars.seen, files: java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::names() -- vars.filesBefore}]"/>
+    </flow>
+
+    <flow name="release-file-store-flow-fails">
+        <http:listener config-ref="release-listener" path="/file-store-flow-fails"/>
+        <flow-ref name="release-content"/>
+        <set-variable variableName="filesBefore" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::names()]"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:file-store maxInMemoryChunks="2"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="seen" value="#[0]"/>
+        <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+        <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::put('flow-fails', {seen: vars.seen, files: java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::names() -- vars.filesBefore})]"/>
+        <raise-error type="APP:FAILED" description="The flow fails after reading the chunks"/>
+    </flow>
+
+    <flow name="release-file-store-async">
+        <http:listener config-ref="release-listener" path="/file-store-async"/>
+        <flow-ref name="release-content"/>
+        <set-variable variableName="filesBefore" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::names()]"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:file-store maxInMemoryChunks="2"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <async>
+            <set-variable variableName="waited" value="#[dw::Runtime::wait(true, 300)]"/>
+            <set-variable variableName="seen" value="#[0]"/>
+            <foreach><set-variable variableName="seen" value="#[vars.seen + 1]"/></foreach>
+            <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::put('async', {seen: vars.seen, files: java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::names() -- vars.filesBefore, unreleased: java!com::mulesoftforge::mule::extension::chunking::test::Held::now().unreleased})]"/>
+        </async>
+        <set-payload value="#[output application/json --- {replied: true}]"/>
+    </flow>
+
+    <!-- Started by a scheduler: once at start, then not again for an hour. It reads under each of the three strategies
+         that hold chunks and records what it saw before the event ends. -->
+    <flow name="release-scheduler">
+        <scheduler><scheduling-strategy><fixed-frequency frequency="3600000"/></scheduling-strategy></scheduler>
+        <set-variable variableName="counts" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+        <flow-ref name="release-content"/>
+        <set-variable variableName="content" value="#[payload]"/>
+        <set-variable variableName="filesBefore" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::names()]"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:file-store maxInMemoryChunks="2"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="fileStore" value="#[0]"/>
+        <foreach><set-variable variableName="fileStore" value="#[vars.fileStore + 1]"/></foreach>
+        <set-variable variableName="files" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::names() -- vars.filesBefore]"/>
+        <set-payload value="#[vars.content]"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:in-memory maxInMemoryChunks="20"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="inMemory" value="#[0]"/>
+        <foreach><set-variable variableName="inMemory" value="#[vars.inMemory + 1]"/></foreach>
+        <set-payload value="#[vars.content]"/>
+        <chunking:read-chunked>
+            <chunking:chunking-strategy><chunking:by-size chunkSize="10"/></chunking:chunking-strategy>
+            <chunking:streaming-strategy><chunking:sliding-window maxInMemoryChunks="5"/></chunking:streaming-strategy>
+        </chunking:read-chunked>
+        <set-variable variableName="slidingWindow" value="#[0]"/>
+        <foreach><set-variable variableName="slidingWindow" value="#[vars.slidingWindow + 1]"/></foreach>
+        <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::put('scheduler', {fileStore: vars.fileStore, inMemory: vars.inMemory, slidingWindow: vars.slidingWindow, files: vars.files, held: java!com::mulesoftforge::mule::extension::chunking::test::Held::now()})]"/>
+    </flow>
+
+    <!-- Tests -->
+
+    <munit:test name="release-in-memory-frees-its-chunks-when-the-event-ends-test"
+                description="in-memory: the 20 chunks it holds while the flow runs are freed when the event ends">
+        <munit:enable-flow-sources><munit:enable-flow-source value="release-in-memory"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="release-client" method="GET" path="/in-memory"/>
+            <set-variable variableName="after" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.seen]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[payload.held.inMemory]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[payload.held.unreleased]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.after.inMemory]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.unreleased]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.collected]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="release-sliding-window-frees-its-chunks-when-the-event-ends-test"
+                description="sliding-window: the 5 chunks it holds at the end of the loop are freed when the event ends">
+        <munit:enable-flow-sources><munit:enable-flow-source value="release-sliding-window"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="release-client" method="GET" path="/sliding-window"/>
+            <set-variable variableName="after" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.seen]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[payload.held.inMemory]" is="#[MunitTools::equalTo(5)]"/>
+            <munit-tools:assert-that expression="#[payload.held.unreleased]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.after.inMemory]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.unreleased]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="release-file-store-deletes-its-file-when-the-event-ends-test"
+                description="file-store: the temporary file that held 18 of 20 chunks is gone once the event has ended, with no collection prompted">
+        <munit:enable-flow-sources><munit:enable-flow-source value="release-file-store"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="release-client" method="GET" path="/file-store"/>
+            <set-variable variableName="after" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+            <set-variable variableName="fileLeft" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::exists(payload.files[0])]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.seen]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[sizeOf(payload.files)]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.fileLeft]" is="#[MunitTools::equalTo(false)]"/>
+            <munit-tools:assert-that expression="#[vars.after.inMemory]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.unreleased]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.collected]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="release-file-store-deletes-its-file-when-the-flow-fails-test"
+                description="file-store: when the flow fails after reading the chunks, the temporary file is gone once the event has ended">
+        <munit:enable-flow-sources><munit:enable-flow-source value="release-file-store-flow-fails"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="release-client" method="GET" path="/file-store-flow-fails" target="response">
+                <http:response-validator><http:success-status-code-validator values="500"/></http:response-validator>
+            </http:request>
+            <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('flow-fails', 5000)]"/>
+            <set-variable variableName="after" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+            <set-variable variableName="fileLeft" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::exists(vars.recorded.files[0])]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.recorded.seen]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[sizeOf(vars.recorded.files)]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.fileLeft]" is="#[MunitTools::equalTo(false)]"/>
+            <munit-tools:assert-that expression="#[vars.after.unreleased]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.collected]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="release-file-store-deletes-its-file-after-asynchronous-reading-test"
+                description="file-store: chunks read in an async scope after the reply; the file is kept until that work ends, then deleted">
+        <munit:enable-flow-sources><munit:enable-flow-source value="release-file-store-async"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="before" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::reset()]"/>
+            <http:request config-ref="release-client" method="GET" path="/file-store-async"/>
+            <set-variable variableName="atReply" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::now()]"/>
+            <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('async', 5000)]"/>
+            <set-variable variableName="after" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+            <set-variable variableName="fileLeft" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::exists(vars.recorded.files[0])]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.replied]" is="#[MunitTools::equalTo(true)]"/>
+            <munit-tools:assert-that expression="#[vars.atReply.unreleased]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded.seen]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[sizeOf(vars.recorded.files)]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded.unreleased]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.fileLeft]" is="#[MunitTools::equalTo(false)]"/>
+            <munit-tools:assert-that expression="#[vars.after.unreleased]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.collected]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="release-when-a-scheduler-started-the-flow-test"
+                description="A flow started by a scheduler: what each of the three strategies holds is freed, and the file deleted, when the event ends">
+        <munit:enable-flow-sources><munit:enable-flow-source value="release-scheduler"/></munit:enable-flow-sources>
+        <munit:execution>
+            <set-variable variableName="recorded" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Results::take('scheduler', 10000)]"/>
+            <set-variable variableName="after" value="#[java!com::mulesoftforge::mule::extension::chunking::test::Held::whenReleased(5000)]"/>
+            <set-variable variableName="fileLeft" value="#[java!com::mulesoftforge::mule::extension::chunking::test::TempFiles::exists(vars.recorded.files[0])]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.recorded.fileStore]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded.inMemory]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded.slidingWindow]" is="#[MunitTools::equalTo(20)]"/>
+            <munit-tools:assert-that expression="#[sizeOf(vars.recorded.files)]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded.held.unreleased]" is="#[MunitTools::equalTo(3)]"/>
+            <munit-tools:assert-that expression="#[vars.recorded.held.inMemory]" is="#[MunitTools::equalTo(27)]"/>
+            <munit-tools:assert-that expression="#[vars.fileLeft]" is="#[MunitTools::equalTo(false)]"/>
+            <munit-tools:assert-that expression="#[vars.after.inMemory]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.unreleased]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[vars.after.collected]" is="#[MunitTools::equalTo(0)]"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>
