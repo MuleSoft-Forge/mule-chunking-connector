@@ -1,8 +1,9 @@
 # Changelog
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-11-11
 
-1.0.0 includes the changes made after 0.2.0 that were never released as 0.2.1.
+1.0.0 includes the changes made after 0.2.0 that were never released as 0.2.1. Since 1.0.0-beta1 the one change is
+the connector's icon.
 
 ### Breaking changes: what a 0.2.0 application must change
 
@@ -51,6 +52,7 @@
 - `CHUNKING:INVALID_PARAMETER`, parent of `CHUNKING:INVALID_CHUNK_SIZE`, and the new
   `CHUNKING:INVALID_RECORDS_PER_CHUNK` and `CHUNKING:INVALID_DELIMITER`. It is also raised for an unrecognised
   `encoding` and for a streaming strategy setting that is not positive.
+- An icon of the connector's own: equal slanted chunks with a shorter last one, white on a teal circle.
 
 ### Changed
 

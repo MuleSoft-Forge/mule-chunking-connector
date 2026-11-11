@@ -6,13 +6,6 @@ each, so that every chunk of a delimited file can be processed on its own.
 
 ## Installation
 
-**1.0.0-beta1 is a preview of 1.0.0.** It contains everything this README describes and everything the 1.0.0
-entry of the [changelog](CHANGELOG.md) lists. It is published so that it can be tried before 1.0.0 is released:
-please try it and tell us what you find by
-[opening an issue](https://github.com/MuleSoft-Forge/mule-chunking-connector/issues). 1.0.0 may differ from it.
-The latest release that is not a preview is 0.2.0, which this README does not describe; see
-[Upgrading from 0.2.0](#upgrading-from-020).
-
 Add the connector to your Mule application's `pom.xml`:
 
 ```xml
@@ -443,8 +436,8 @@ To see the DEBUG lines, set the logger `com.mulesoftforge.mule.extension.chunkin
 
 ## Upgrading from 0.2.0
 
-1.0.0 changes the operation's settings, and 1.0.0-beta1 already has those changes. See [CHANGELOG.md](CHANGELOG.md)
-for every change a 0.2.0 application must make.
+1.0.0 changes the operation's settings. See [CHANGELOG.md](CHANGELOG.md) for every change a 0.2.0 application must
+make.
 
 ## License
 
