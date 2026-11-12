@@ -1,8 +1,17 @@
 # MuleSoft Chunking Connector
 
-Reads content as a sequence of chunks, so that a flow can process content of any size one chunk at a time with
-`foreach`. Chunks are cut either by size, a number of bytes each, or by delimiter, a number of delimited records
-each, so that every chunk of a delimited file can be processed on its own.
+The Chunking Connector lets a flow process any stream in chunks. Content of any size, from any source, arrives as a
+sequence of bounded pieces, cut by size or by record, so the flow never needs the whole of it in memory.
+
+Mule 4 made [repeatable streams](https://docs.mulesoft.com/mule-runtime/latest/streaming-about) its default so that a
+stream can be read more than once and by more than one component at the same time. The connector is built to honor
+that principle for chunks: its streaming strategies give up as little of it as the memory you allow.
+
+Uses include:
+
+- sending content onward in parts, as storage and transfer services that accept multipart uploads expect;
+- handing records to another system in batches, a set number of lines or records at a time;
+- working through content larger than the memory available.
 
 ## Installation
 
@@ -36,7 +45,7 @@ and `streaming-strategy`, which says how the chunks are held. In Anypoint Studio
 Anypoint Code Builder one whose box is left unticked, means the default: by size in chunks of 1 MB, and
 non-repeatable.
 
-## The chunk
+## Chunk properties
 
 Each chunk has these properties:
 
@@ -78,8 +87,8 @@ when no chunking strategy is given.
 ### By delimiter
 
 `by-delimiter` cuts the content into chunks of `recordsPerChunk` records, where a record ends with the delimiter.
-With a newline delimiter, the default, and 1000 records per chunk, each chunk is 1000 lines, whatever number of bytes
-that is:
+With a newline delimiter, the default, and 1000 records per chunk, each chunk is 1000 lines, regardless of their size
+in bytes:
 
 ```xml
 <chunking:read-chunked>
@@ -101,13 +110,13 @@ that is:
 
 How records are cut:
 
-- **The delimiter stays in the data.** A chunk ends with the delimiter that ends its last record.
-- **Two delimiters in a row are an empty record**, and it counts.
-- **Content that ends with a delimiter** does not produce an extra, empty chunk. **Content that ends without one**
-  still has its final record, and it counts.
-- **The last chunk holds whatever is left**, usually fewer records than `recordsPerChunk`.
-- **The delimiter is matched exactly.** Escape sequences are not interpreted: `delimiter="\n"` is a backslash
-  followed by `n`. A character that cannot be typed is written as an expression.
+- The delimiter stays in the data. A chunk ends with the delimiter that ends its last record.
+- Two delimiters in a row make an empty record, which is counted like any other.
+- Content that ends with a delimiter does not produce an extra, empty chunk. Content that ends without one still has
+  its final record, which is counted.
+- The last chunk holds whatever is left, usually fewer records than `recordsPerChunk`.
+- The delimiter is matched exactly. Escape sequences are not interpreted: `delimiter="\n"` is a backslash followed
+  by `n`. A character that cannot be typed is written as an expression.
 
 A delimiter given as text:
 
@@ -135,7 +144,7 @@ A delimiter given as an expression, here a carriage return and line feed:
 </foreach>
 ```
 
-### The maximum chunk size never cuts a record
+### Maximum chunk size
 
 `maxChunkSize` bounds the memory a chunk needs, and it never cuts a record. When the next record would take a chunk
 past `maxChunkSize` bytes, counting the delimiter that ends the record, the chunk ends before that record, and the
@@ -177,10 +186,11 @@ A chunk is at most `chunkSize` bytes when chunking by size, and at most `maxChun
 delimiter, so memory follows from the number of chunks held. `maxInMemoryChunks` must be a positive number on every
 strategy that has it.
 
-**When the chunks are released.** What `sliding-window`, `in-memory` and `file-store` hold is released when the
-event that read the chunks ends: after the flow's last processor, after any asynchronous work the event started,
-and whether the flow succeeded or failed. `file-store` deletes its temporary file then. A read after that fails with
-a message saying the chunks were released.
+### When the chunks are released
+
+What `sliding-window`, `in-memory` and `file-store` hold is released when the event that read the chunks ends: after the
+flow's last processor, after any asynchronous work the event started, and whether the flow succeeded or failed.
+`file-store` deletes its temporary file then. A read after that fails with a message saying the chunks were released.
 
 ### non-repeatable
 
@@ -233,25 +243,31 @@ chunk, and a chunk is let go as soon as both have read it:
 
 ### Readers under the sliding window
 
-How the sliding window decides when a chunk can go is the thing to understand before using it.
+#### What counts as a reader
 
-**What counts as a reader.** A reader is anything that reads at least one of the chunks: a `foreach`, a route of a
-`scatter-gather` that reads them, a DataWeave expression such as `sizeOf(payload)` or `payload[0]`. Each time the
-chunks are read from the start counts as one reader: two `foreach` over the same chunks are two readers. Something
-that opens the chunks and reads none of them is not a reader and holds nothing back.
+A reader is anything that reads at least one of the chunks: a `foreach`, a route of a `scatter-gather` that reads them,
+a DataWeave expression such as `sizeOf(payload)` or `payload[0]`. Each time the chunks are read from the start counts as
+one reader: two `foreach` over the same chunks are two readers. Something that opens the chunks and reads none of them
+is not a reader and holds nothing back.
 
-**With `readers` set**, say to 2, a chunk is let go as soon as 2 readers have read it, and never before. Readers
-that run at the same time keep memory to the chunks between the slowest and the fastest. A reader that starts late
-still finds every chunk, because none is let go until it has read it; but the others can get no more than
-`maxInMemoryChunks` ahead of it, and one that would fails with the first message below.
+#### With readers set
 
-**With `readers` not set**, the window does not know how many readers to wait for. It keeps chunks until
-`maxInMemoryChunks` are held, and only then lets go of the oldest that every reader seen so far has read, to make
-room for the next. A reader that starts within that many chunks of the first finds every chunk; one that starts
-later cannot. Memory then sits at the limit rather than at the minimum.
+Say `readers` is 2. A chunk is let go as soon as 2 readers have read it, and never before. Readers that run at the same
+time keep memory to the chunks between the slowest and the fastest. A reader that starts late still finds every chunk,
+because none is let go until it has read it; but the others can get no more than `maxInMemoryChunks` ahead of it, and
+one that would fails with the first message below.
 
-**When the read fails.** There are three failures. Each fails the reader that meets it, with a message that starts
-as shown and says what to change:
+#### With readers not set
+
+The window does not know how many readers to wait for. It keeps chunks until `maxInMemoryChunks` are held, and only then
+lets go of the oldest that every reader seen so far has read, to make room for the next. A reader that starts within
+that many chunks of the first finds every chunk; one that starts later cannot. Memory then sits at the limit rather than
+at the minimum.
+
+#### Failures and what to change
+
+There are three failures. Each fails the reader that meets it, with a message that starts as shown and says what to
+change:
 
 | Message starts | What happened | What to change |
 |---|---|---|
@@ -261,11 +277,13 @@ as shown and says what to change:
 
 The failure reaches the flow as described under [Errors](#errors).
 
-**Readers in a `scatter-gather`.** The routes of a `scatter-gather` inside a flow run at the same time, each on its
-own thread, so two `foreach` routes read the chunks together. They do not move in step: each reads at its own pace,
-and a route that does little work per chunk can get several chunks ahead of another. `maxInMemoryChunks` has to
-cover that gap, or the faster route fails with the first message above. Routes that do similar, substantial work for
-each chunk stay within a few chunks of each other; for routes that do little, allow more room than the default of 3.
+#### Readers in a scatter-gather
+
+The routes of a `scatter-gather` inside a flow run at the same time, each on its own thread, so two `foreach` routes
+read the chunks together. They do not move in step: each reads at its own pace, and a route that does little work per
+chunk can get several chunks ahead of another. `maxInMemoryChunks` has to cover that gap, or the faster route fails with
+the first message above. Routes that do similar, substantial work for each chunk stay within a few chunks of each other;
+for routes that do little, allow more room than the default of 3.
 
 The routes run one after another instead, and the second reader starts only when the first has finished, when:
 
@@ -275,14 +293,17 @@ The routes run one after another instead, and the second reader starts only when
 
 Then the content must fit within `maxInMemoryChunks`, as for any readers one after another.
 
-**Readers one after another**, such as a `foreach` after a `foreach`, work while the content is no more than
+#### Readers one after another
+
+Readers one after another, such as a `foreach` after a `foreach`, work while the content is no more than
 `maxInMemoryChunks` chunks: the first reader reads them all before the second starts, so all of them must be held.
 Beyond that the read fails cleanly; it never holds more.
 
-**When to use `in-memory` or `file-store` instead.** Use one of them when the chunks are read one after another over
-content larger than `maxInMemoryChunks`, when a reader may start long after the others, when the readers' pace can
-differ widely, or when the number of readers is not known. `in-memory` holds every chunk; `file-store` holds a few
-and writes the rest to disk.
+#### When to use in-memory or file-store instead
+
+Use `in-memory` or `file-store` when the chunks are read one after another over content larger than `maxInMemoryChunks`,
+when a reader may start long after the others, when the readers' pace can differ widely, or when the number of readers
+is not known. `in-memory` holds every chunk; `file-store` holds a few and writes the rest to disk.
 
 ### in-memory
 
@@ -336,10 +357,10 @@ when a reader needs them. Here a second loop reads every chunk again, most of th
   `mule-chunking-file-store-*.chunks`, only when a chunk has to be written. It needs as much disk space as the
   content less what is held in memory.
 - The file is deleted when the event that read the chunks ends, as described under
-  [When the chunks are released](#streaming-strategies).
+  [When the chunks are released](#when-the-chunks-are-released).
 - The connector writes the file itself, so this strategy does not need the Mule Enterprise runtime.
 
-### The strategies beside Mule's own
+### Comparison with Mule's streaming strategies
 
 The connector's strategies and settings have the connector's own names. Where one corresponds to a Mule streaming
 setting, it works like it, with these differences:
@@ -387,7 +408,7 @@ Each message says what was wrong and ends with the value received, for example
 
 The content is read while the flow reads the chunks, after `read-chunked` has returned. A failure then is raised to
 the flow at once, after the chunks before it, and the content is never reported as having ended early. Mule reports
-these failures with its own error types, not the connector's:
+these failures with its own error types:
 
 - inside `foreach`, `MULE:UNKNOWN`. An error handler cannot name this type (an application that does fails to
   build), so handle these failures with `ANY`, as in the example below, and use `error.description` to tell them
@@ -398,7 +419,7 @@ The error's `description` ends with the connector's message, which says what hap
 
 - the content cannot be read, for example the source stream fails part-way;
 - a record is larger than `maxChunkSize` (by delimiter);
-- one of the three `sliding-window` failures under [Readers under the sliding window](#readers-under-the-sliding-window);
+- one of the three `sliding-window` failures under [Failures and what to change](#failures-and-what-to-change);
 - `in-memory` reaches its limit;
 - `file-store` cannot write or read its temporary file;
 - the chunks are read after they were released.
@@ -423,13 +444,14 @@ The error's `description` ends with the connector's message, which says what hap
 
 ## Logging
 
-The connector logs nothing at INFO: what is worth an INFO line is for the application's flow to decide.
+The connector logs nothing at INFO; INFO lines are left to the application's flows.
 
-- **DEBUG**: one line for each invocation of `read-chunked`, with its chunking and streaming strategies and their
-  settings; a line for each chunk read; when `file-store` starts writing to its temporary file, and when it deletes
-  it; and what `sliding-window` held when it lets go of the chunks.
-- **WARN**: the content could not be closed after reading, or `file-store` could not delete its temporary file.
-- Failures a flow must handle are raised as errors, not logged.
+| Level | What the connector logs |
+|---|---|
+| DEBUG | One line for each invocation of `read-chunked`, with its chunking and streaming strategies and their settings; a line for each chunk read; when `file-store` starts writing to its temporary file, and when it deletes it; and what `sliding-window` held when it lets go of the chunks |
+| WARN | The content could not be closed after reading, or `file-store` could not delete its temporary file |
+
+Failures a flow must handle are raised as errors and are not logged.
 
 To see the DEBUG lines, set the logger `com.mulesoftforge.mule.extension.chunking` to DEBUG in the application's
 `log4j2.xml`.
