@@ -7,11 +7,10 @@ by an HTTP request to `localhost`.
 It depends on the connector version given by `chunking.connector.version` in `pom.xml`. To build against a local
 build of the connector, install the connector first (`mvn clean install` in the repository root).
 
-## Opening it
+## Opening the application
 
-- **Anypoint Studio**: File > Import > Anypoint Studio > Anypoint Studio project from File System, and choose this
-  directory.
-- **Anypoint Code Builder**: open this directory as a folder; it is recognised as a Mule project.
+In Anypoint Studio, use File > Import > Anypoint Studio > Anypoint Studio project from File System, and choose this
+directory. In Anypoint Code Builder, open this directory as a folder; it is recognised as a Mule project.
 
 ## Running a flow
 
